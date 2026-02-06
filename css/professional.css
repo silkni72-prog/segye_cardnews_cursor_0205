@@ -1,0 +1,200 @@
+/* =====================================================
+   Professional Design - 전문가 디자인
+   ===================================================== */
+
+/* 프리미엄 기능 그리드 */
+.premium-features-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 2rem;
+    margin-top: 2rem;
+}
+
+.premium-feature-card {
+    background: white;
+    border-radius: 16px;
+    padding: 2rem;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    transition: all 0.3s ease;
+}
+
+.premium-feature-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+}
+
+.feature-icon-large {
+    width: 60px;
+    height: 60px;
+    background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%);
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 2rem;
+    margin-bottom: 1.5rem;
+}
+
+.premium-feature-card h3 {
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: #1F2937;
+    margin-bottom: 1rem;
+}
+
+.premium-feature-card p {
+    font-size: 1rem;
+    color: #6B7280;
+    line-height: 1.6;
+    margin-bottom: 1rem;
+}
+
+.feature-tags {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.feature-tag {
+    background: #EFF6FF;
+    color: #2563EB;
+    padding: 0.35rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+/* 템플릿 그리드 */
+.templates-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 2rem;
+    margin-top: 2rem;
+}
+
+/* 진행 상태 스텝 */
+.progress-steps {
+    display: flex;
+    justify-content: space-around;
+    margin-top: 2rem;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.progress-step {
+    text-align: center;
+    opacity: 0.5;
+    transition: all 0.3s ease;
+}
+
+.progress-step.active {
+    opacity: 1;
+}
+
+.progress-step-icon {
+    font-size: 2rem;
+    margin-bottom: 0.5rem;
+}
+
+.progress-step-label {
+    font-size: 0.85rem;
+    color: #6B7280;
+    font-weight: 600;
+}
+
+/* 분석 섹션 */
+.analysis-header {
+    text-align: center;
+    margin-bottom: 2rem;
+}
+
+.analysis-header h3 {
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: white;
+    margin-bottom: 0.5rem;
+}
+
+.analysis-header p {
+    font-size: 1rem;
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.analysis-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.5rem;
+}
+
+.analysis-card {
+    background: white;
+    border-radius: 16px;
+    padding: 1.5rem;
+    text-align: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.analysis-icon {
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+}
+
+.analysis-label {
+    font-size: 0.9rem;
+    color: #6B7280;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+}
+
+.analysis-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #2563EB;
+    margin-bottom: 0.5rem;
+}
+
+.analysis-desc {
+    font-size: 0.85rem;
+    color: #9CA3AF;
+}
+
+/* 키워드 섹션 */
+.keywords-section {
+    margin-top: 2rem;
+    background: white;
+    border-radius: 16px;
+    padding: 1.5rem;
+}
+
+.keywords-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.keywords-icon {
+    font-size: 1.5rem;
+}
+
+.keywords-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #1F2937;
+}
+
+.keywords-container {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+/* 반응형 */
+@media (max-width: 768px) {
+    .premium-features-grid,
+    .templates-grid,
+    .analysis-grid {
+        grid-template-columns: 1fr;
+    }
+}

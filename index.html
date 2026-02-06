@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="SEGYE.On - AI 기반 원클릭 뉴스 생성 시스템">
+    <title>SEGYE.On - One-Click News</title>
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background: linear-gradient(180deg, #1A2942 0%, #0F1B2D 100%);
+            color: #ffffff;
+            min-height: 100vh;
+            overflow-x: hidden;
+            padding: 0 2rem;
+        }
+        
+        /* Header Wrapper - 배경만 좌우 끝까지 채워 경계선 없음 */
+        .header-wrapper {
+            background: #0F1B2D;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+            margin-left: -2rem;
+            margin-right: -2rem;
+            padding-left: 2rem;
+            padding-right: 2rem;
+        }
+        
+        /* Header */
+        .header {
+            padding: 2.8rem 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            max-width: 1440px;
+            margin: 0 auto;
+            position: relative;
+            z-index: 100;
+        }
+        
+        .logo-container {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .logo {
+            display: flex;
+            align-items: baseline;
+            gap: 0.25rem;
+        }
+        
+        .logo h1 {
+            font-size: 2.1rem;
+            font-weight: 900;
+            display: flex;
+            align-items: baseline;
+            gap: 0.25rem;
+        }
+        
+        .logo-text {
+            color: #ffffff;
+        }
+        
+        .logo-on {
+            font-size: 2.52rem;
+            background: linear-gradient(135deg, #6366F1 0%, #8B5CF6 50%, #EC4899 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            position: relative;
+            display: inline-block;
+            padding-bottom: 0.15rem;
+        }
+        
+        .logo-on::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #6366F1 0%, #8B5CF6 50%, #EC4899 100%);
+            border-radius: 2px;
+            box-shadow: 0 0 10px rgba(99, 102, 241, 0.5);
+        }
+        
+        .badge {
+            background: #5B68E8;
+            color: white;
+            padding: 0.35rem 0.95rem;
+            border-radius: 16px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .subtitle {
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 0.833rem;
+            margin-top: 0.35rem;
+            font-weight: 400;
+        }
+        
+        /* Navigation */
+        .nav {
+            display: flex;
+            gap: 0.75rem;
+        }
+        
+        .nav-btn {
+            padding: 0.65rem 1.3rem;
+            background: transparent;
+            border: 1.5px solid rgba(255, 255, 255, 0.15);
+            border-radius: 8px;
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: 'Noto Sans KR', sans-serif;
+            text-decoration: none;
+            display: inline-block;
+        }
+        
+        .nav-btn:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+        
+        .nav-btn.live {
+            background: #5B68E8;
+            border-color: #5B68E8;
+            color: white;
+        }
+        
+        /* Main Content */
+        .main {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 5rem 2rem 4rem;
+            text-align: center;
+            min-height: calc(100vh - 200px);
+        }
+        
+        .intro {
+            margin-bottom: 3rem;
+        }
+        
+        .intro-text {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 1.05rem;
+            margin-bottom: 1.5rem;
+            font-weight: 400;
+        }
+        
+        .main-title {
+            font-size: 4.2rem;
+            font-weight: 900;
+            color: #ffffff;
+            margin-bottom: 1.5rem;
+            line-height: 1.1;
+            letter-spacing: -0.02em;
+            position: relative;
+            display: inline-block;
+            padding-bottom: 1.5rem;
+        }
+        
+        /* One-Click News 빛나는 언더라인 */
+        .main-title::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 80%;
+            height: 3px;
+            background: linear-gradient(
+                90deg,
+                transparent 0%,
+                rgba(99, 102, 241, 0.3) 10%,
+                rgba(139, 92, 246, 0.6) 30%,
+                rgba(167, 139, 250, 0.8) 50%,
+                rgba(139, 92, 246, 0.6) 70%,
+                rgba(99, 102, 241, 0.3) 90%,
+                transparent 100%
+            );
+            border-radius: 2px;
+            box-shadow: 
+                0 0 10px rgba(139, 92, 246, 0.4),
+                0 0 20px rgba(99, 102, 241, 0.2);
+        }
+        
+
+        
+        .description {
+            color: rgba(255, 255, 255, 0.65);
+            font-size: 1.05rem;
+            line-height: 1.7;
+            font-weight: 400;
+        }
+        
+        /* Input Section - 프리미엄 글래스모피즘 디자인 */
+        .input-section {
+            background: linear-gradient(
+                135deg, 
+                rgba(30, 41, 59, 0.75) 0%,
+                rgba(51, 65, 85, 0.7) 50%,
+                rgba(71, 85, 105, 0.75) 100%
+            );
+            backdrop-filter: blur(40px) saturate(180%);
+            border: 1.5px solid rgba(148, 163, 184, 0.2);
+            border-radius: 28px;
+            padding: 2rem 3rem;
+            margin: 3rem auto;
+            max-width: 1440px;
+            box-shadow: 
+                0 25px 70px rgba(0, 0, 0, 0.35),
+                0 10px 30px rgba(139, 92, 246, 0.25),
+                inset 0 1px 0 rgba(255, 255, 255, 0.1),
+                inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .input-section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, 
+                transparent 0%, 
+                rgba(167, 139, 250, 0.5) 50%, 
+                transparent 100%);
+        }
+        
+        .input-section::after {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(
+                circle at top center,
+                rgba(139, 92, 246, 0.08) 0%,
+                transparent 60%
+            );
+            pointer-events: none;
+        }
+        
+        .input-wrapper {
+            display: flex;
+            gap: 1rem;
+            max-width: 900px;
+            margin: 0 auto 2rem;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .url-input {
+            flex: 1;
+            padding: 1.2rem 1.6rem;
+            background: rgba(15, 23, 42, 0.6);
+            border: 2px solid rgba(148, 163, 184, 0.2);
+            border-radius: 14px;
+            color: rgba(255, 255, 255, 0.95);
+            font-size: 0.95rem;
+            font-family: 'Noto Sans KR', sans-serif;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 
+                0 4px 12px rgba(0, 0, 0, 0.25),
+                inset 0 1px 1px rgba(255, 255, 255, 0.05);
+        }
+        
+        .url-input::placeholder {
+            color: rgba(148, 163, 184, 0.5);
+        }
+        
+        .url-input:hover {
+            background: rgba(15, 23, 42, 0.7);
+            border-color: rgba(167, 139, 250, 0.4);
+        }
+        
+        .url-input:focus {
+            outline: none;
+            background: rgba(15, 23, 42, 0.8);
+            border-color: rgba(167, 139, 250, 0.6);
+            box-shadow: 
+                0 6px 20px rgba(139, 92, 246, 0.3),
+                0 0 0 4px rgba(139, 92, 246, 0.15),
+                inset 0 1px 1px rgba(255, 255, 255, 0.08);
+        }
+        
+        .generate-btn {
+            padding: 1.2rem 2.2rem;
+            background: linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%);
+            border: none;
+            border-radius: 14px;
+            color: white;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            white-space: nowrap;
+            font-family: 'Noto Sans KR', sans-serif;
+            box-shadow: 
+                0 8px 20px rgba(99, 102, 241, 0.35),
+                0 4px 8px rgba(139, 92, 246, 0.2),
+                inset 0 1px 0 rgba(255, 255, 255, 0.2);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .generate-btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, 
+                transparent 0%, 
+                rgba(255, 255, 255, 0.2) 50%, 
+                transparent 100%);
+            transition: left 0.5s ease;
+        }
+        
+        .generate-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 
+                0 12px 32px rgba(99, 102, 241, 0.45),
+                0 6px 12px rgba(139, 92, 246, 0.3),
+                inset 0 1px 0 rgba(255, 255, 255, 0.3);
+        }
+        
+        .generate-btn:hover::before {
+            left: 100%;
+        }
+        
+        .generate-btn:active {
+            transform: translateY(-1px);
+        }
+        
+        /* Feature Cards */
+        .features {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1.5rem;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .feature-card {
+            background: linear-gradient(
+                135deg,
+                rgba(51, 65, 85, 0.6) 0%,
+                rgba(71, 85, 105, 0.5) 100%
+            );
+            border: 1.5px solid rgba(148, 163, 184, 0.15);
+            border-radius: 18px;
+            padding: 1.5rem 1rem;
+            text-align: center;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+            box-shadow: 
+                0 6px 16px rgba(0, 0, 0, 0.2),
+                inset 0 1px 0 rgba(255, 255, 255, 0.05);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .feature-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(
+                circle at top right,
+                rgba(167, 139, 250, 0.15) 0%,
+                transparent 60%
+            );
+            opacity: 0;
+            transition: opacity 0.4s ease;
+        }
+        
+        .feature-card:hover {
+            background: linear-gradient(
+                135deg,
+                rgba(71, 85, 105, 0.8) 0%,
+                rgba(100, 116, 139, 0.7) 100%
+            );
+            border-color: rgba(167, 139, 250, 0.4);
+            transform: translateY(-6px) scale(1.02);
+            box-shadow: 
+                0 16px 40px rgba(0, 0, 0, 0.3),
+                0 8px 20px rgba(139, 92, 246, 0.25),
+                inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        }
+        
+        .feature-card:hover::before {
+            opacity: 1;
+        }
+        
+        .feature-icon {
+            width: 56px;
+            height: 56px;
+            background: linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%);
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.6rem;
+            margin: 0 auto 1rem;
+        }
+        
+        .feature-card:nth-child(2) .feature-icon {
+            background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%);
+        }
+        
+        .feature-card:nth-child(3) .feature-icon {
+            background: linear-gradient(135deg, #8B5CF6 0%, #A855F7 100%);
+        }
+        
+        .feature-card:nth-child(4) .feature-icon {
+            background: linear-gradient(135deg, #EC4899 0%, #DB2777 100%);
+        }
+        
+        .feature-title {
+            font-size: 1.05rem;
+            font-weight: 700;
+            margin-bottom: 0.4rem;
+            color: rgba(255, 255, 255, 0.95);
+            position: relative;
+            z-index: 1;
+        }
+        
+        .feature-desc {
+            font-size: 0.85rem;
+            color: rgba(203, 213, 225, 0.7);
+            font-weight: 400;
+            position: relative;
+            z-index: 1;
+        }
+        
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .features {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .main-title {
+                font-size: 2.8rem;
+            }
+            
+            .main-title::after {
+                height: 2px;
+                width: 85%;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            body {
+                padding: 0 1rem;
+            }
+            
+            .header-wrapper {
+                margin-left: -1rem;
+                margin-right: -1rem;
+                padding-left: 1rem;
+                padding-right: 1rem;
+            }
+            
+            .footer {
+                margin-left: -1rem;
+                margin-right: -1rem;
+                padding-left: 1rem;
+                padding-right: 1rem;
+            }
+            
+            .header {
+                flex-direction: column;
+                gap: 1rem;
+                padding: 1.5rem 0;
+            }
+            
+            .nav {
+                width: 100%;
+                justify-content: center;
+            }
+            
+            .main {
+                padding: 3rem 1.5rem;
+            }
+            
+            .main-title {
+                font-size: 1.75rem;
+            }
+            
+            .main-title::after {
+                height: 2px;
+                width: 90%;
+            }
+            
+            .input-wrapper {
+                flex-direction: column;
+            }
+            
+            .features {
+                grid-template-columns: 1fr;
+            }
+            
+            .input-section {
+                padding: 2rem 1.5rem;
+            }
+        }
+        
+        /* Footer - 배경만 좌우 끝까지 채워 경계선 없음 */
+        .footer {
+            background: #0F1B2D;
+            padding: 2rem 3rem;
+            text-align: center;
+            border-top: 1px solid rgba(148, 163, 184, 0.1);
+            margin-left: -2rem;
+            margin-right: -2rem;
+            padding-left: calc(3rem + 2rem);
+            padding-right: calc(3rem + 2rem);
+        }
+        
+        .footer-text {
+            color: rgba(148, 163, 184, 0.7);
+            font-size: 0.9rem;
+            line-height: 1.8;
+            font-weight: 400;
+        }
+        
+        .footer-text:first-child {
+            margin-bottom: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header Wrapper -->
+    <div class="header-wrapper">
+        <!-- Header -->
+        <header class="header">
+        <div class="logo-container">
+            <div>
+                <div class="logo">
+                    <h1>
+                        <span class="logo-text">SEGYE.</span><span class="logo-on">On</span>
+                    </h1>
+                    <span class="badge">ONE-CLICK NEWS</span>
+                </div>
+                <p class="subtitle">AI 기반 원클릭 뉴스 생성 시스템</p>
+            </div>
+        </div>
+        
+        <nav class="nav">
+            <a href="features.html" class="nav-btn">기능소개</a>
+            <a href="templates.html" class="nav-btn">템플릿</a>
+            <a href="stats.html" class="nav-btn live">통계 LIVE</a>
+        </nav>
+    </header>
+    </div>
+    
+    <!-- Main Content -->
+    <main class="main">
+        <div class="intro">
+            <p class="intro-text">기사 URL을 입력하면 3초만에</p>
+            <h1 class="main-title">One-Click News</h1>
+            <p class="description">AI가 자동으로 이미지를 추출하고, 최적의 레이아웃으로 카드뉴스를 생성합니다</p>
+        </div>
+        
+        <!-- Input Section -->
+        <section class="input-section">
+            <form id="newsForm">
+                <div class="input-wrapper">
+                    <input 
+                        type="url" 
+                        class="url-input" 
+                        placeholder="https://www.segye.com/newsView/..."
+                        id="newsUrl"
+                        required
+                    >
+                    <button type="submit" class="generate-btn" id="generateBtn">
+                        <i class="fas fa-wand-magic-sparkles"></i>
+                        <span>AI로 생성하기</span>
+                    </button>
+                </div>
+            </form>
+            
+            <!-- Features -->
+            <div class="features">
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-wand-magic-sparkles"></i>
+                    </div>
+                    <h3 class="feature-title">AI 자동 분석</h3>
+                    <p class="feature-desc">자동으로 내용 분석</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-images"></i>
+                    </div>
+                    <h3 class="feature-title">이미지 추출</h3>
+                    <p class="feature-desc">고품질 1080x1920</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-palette"></i>
+                    </div>
+                    <h3 class="feature-title">6가지 레이아웃</h3>
+                    <p class="feature-desc">최적 디자인 공급</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-bolt"></i>
+                    </div>
+                    <h3 class="feature-title">초고속 생성</h3>
+                    <p class="feature-desc">단 3초 완성 생성</p>
+                </div>
+            </div>
+        </section>
+    </main>
+    
+    <!-- Footer -->
+    <footer class="footer">
+        <p class="footer-text">Copyright ⓒ 세계일보 All rights reserved.</p>
+        <p class="footer-text">세계일보 독자 유입 극대화를 위한 프리미엄 솔루션</p>
+    </footer>
+    
+    <!-- 카드 이미지 캡처 (html2canvas 기반) -->
+    <script src="js/card-image-capture.js?v=2"></script>
+    <!-- 백엔드 API 연동 -->
+    <script src="js/backend-api.js?v=2"></script>
+</body>
+</html>

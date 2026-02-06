@@ -1,0 +1,61 @@
+/* =====================================================
+   Compact Features - 컴팩트 기능 카드
+   ===================================================== */
+
+.compact-features {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.5rem;
+    margin-top: 2rem;
+    padding-top: 2rem;
+    border-top: 1px solid #E5E7EB;
+}
+
+.compact-feature-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    padding: 1rem;
+    background: #F9FAFB;
+    border-radius: 12px;
+    transition: all 0.3s ease;
+}
+
+.compact-feature-item:hover {
+    background: #F3F4F6;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.compact-icon {
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%);
+    border-radius: 10px;
+    color: white;
+    font-size: 1.2rem;
+}
+
+.compact-text h4 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #1F2937;
+    margin-bottom: 0.25rem;
+}
+
+.compact-text p {
+    font-size: 0.85rem;
+    color: #6B7280;
+    margin: 0;
+}
+
+/* 반응형 */
+@media (max-width: 768px) {
+    .compact-features {
+        grid-template-columns: 1fr;
+    }
+}

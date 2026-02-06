@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="SEGYE.On 프리미엄 기능 - AI 기반 원클릭 뉴스 생성 시스템">
+    <title>프리미엄 기능 - SEGYE.On</title>
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background: #0a0f1e;
+            color: #ffffff;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        
+        /* Header Wrapper */
+        .header-wrapper {
+            background: #0F1B2D;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+        }
+        
+        /* Header */
+        .header {
+            padding: 2.8rem 3rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            max-width: 1440px;
+            margin: 0 auto;
+            position: relative;
+            z-index: 100;
+        }
+        
+        .logo-container {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .logo {
+            display: flex;
+            align-items: baseline;
+            gap: 0.25rem;
+        }
+        
+        .logo h1 {
+            font-size: 2.1rem;
+            font-weight: 900;
+            display: flex;
+            align-items: baseline;
+            gap: 0.25rem;
+        }
+        
+        .logo a {
+            text-decoration: none;
+            color: inherit;
+            display: flex;
+            align-items: baseline;
+            gap: 0.25rem;
+        }
+        
+        .logo-text {
+            color: #ffffff;
+        }
+        
+        .logo-on {
+            font-size: 2.52rem;
+            background: linear-gradient(135deg, #6366F1 0%, #8B5CF6 50%, #EC4899 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            position: relative;
+            display: inline-block;
+            padding-bottom: 0.15rem;
+        }
+        
+        .logo-on::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #6366F1 0%, #8B5CF6 50%, #EC4899 100%);
+            border-radius: 2px;
+            box-shadow: 0 0 10px rgba(99, 102, 241, 0.5);
+        }
+        
+        .badge {
+            background: #5B68E8;
+            color: white;
+            padding: 0.35rem 0.95rem;
+            border-radius: 16px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .subtitle {
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 0.833rem;
+            margin-top: 0.35rem;
+            font-weight: 400;
+        }
+        
+        /* Navigation */
+        .nav {
+            display: flex;
+            gap: 0.75rem;
+        }
+        
+        .nav-btn {
+            padding: 0.65rem 1.3rem;
+            background: transparent;
+            border: 1.5px solid rgba(255, 255, 255, 0.15);
+            border-radius: 8px;
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: 'Noto Sans KR', sans-serif;
+            text-decoration: none;
+            display: inline-block;
+        }
+        
+        .nav-btn:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+        
+        .nav-btn.active {
+            background: #5B68E8;
+            border-color: #5B68E8;
+            color: white;
+        }
+        
+        /* Modal Container */
+        .modal-container {
+            max-width: 1100px;
+            margin: 3rem auto;
+            padding: 0 2rem;
+        }
+        
+        .modal-content {
+            background: linear-gradient(135deg, rgba(20, 30, 50, 0.95) 0%, rgba(15, 25, 45, 0.95) 100%);
+            border: 1px solid rgba(148, 163, 184, 0.15);
+            border-radius: 24px;
+            padding: 3rem;
+            position: relative;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        }
+        
+        /* Close Button */
+        .close-btn {
+            position: absolute;
+            top: 1.5rem;
+            right: 1.5rem;
+            width: 36px;
+            height: 36px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 1.2rem;
+        }
+        
+        .close-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 0.9);
+        }
+        
+        /* ESC Text */
+        .esc-text {
+            position: absolute;
+            top: 1.5rem;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.85rem;
+            color: rgba(255, 255, 255, 0.4);
+        }
+        
+        /* Modal Header */
+        .modal-header {
+            text-align: center;
+            margin-bottom: 3rem;
+            padding-top: 1rem;
+        }
+        
+        .modal-title {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #ffffff;
+            margin-bottom: 0.75rem;
+        }
+        
+        .modal-title i {
+            color: #8B5CF6;
+        }
+        
+        .modal-subtitle {
+            font-size: 1rem;
+            color: rgba(255, 255, 255, 0.6);
+            font-weight: 400;
+        }
+        
+        /* Feature Cards Grid */
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.5rem;
+        }
+        
+        .feature-card {
+            background: linear-gradient(135deg, rgba(30, 41, 59, 0.6) 0%, rgba(51, 65, 85, 0.5) 100%);
+            border: 1.5px solid rgba(148, 163, 184, 0.15);
+            border-radius: 20px;
+            padding: 2.5rem 2rem;
+            text-align: center;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .feature-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(
+                circle at top right,
+                rgba(167, 139, 250, 0.1) 0%,
+                transparent 60%
+            );
+            opacity: 0;
+            transition: opacity 0.4s ease;
+        }
+        
+        .feature-card:hover {
+            border-color: rgba(167, 139, 250, 0.4);
+            transform: translateY(-8px);
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+        }
+        
+        .feature-card:hover::before {
+            opacity: 1;
+        }
+        
+        /* Feature Icon */
+        .feature-icon {
+            width: 80px;
+            height: 80px;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5rem;
+            margin: 0 auto 1.5rem;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s ease;
+        }
+        
+        .feature-card:hover .feature-icon {
+            transform: scale(1.1);
+        }
+        
+        /* Icon Colors */
+        .icon-purple {
+            background: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);
+        }
+        
+        .icon-pink {
+            background: linear-gradient(135deg, #f472b6 0%, #ec4899 100%);
+        }
+        
+        .icon-cyan {
+            background: linear-gradient(135deg, #67e8f9 0%, #06b6d4 100%);
+        }
+        
+        .icon-green {
+            background: linear-gradient(135deg, #86efac 0%, #22c55e 100%);
+        }
+        
+        .icon-orange {
+            background: linear-gradient(135deg, #fdba74 0%, #f97316 100%);
+        }
+        
+        .icon-blue {
+            background: linear-gradient(135deg, #93c5fd 0%, #3b82f6 100%);
+        }
+        
+        /* Feature Content */
+        .feature-title {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: #ffffff;
+            margin-bottom: 1rem;
+        }
+        
+        .feature-description {
+            font-size: 0.95rem;
+            color: rgba(255, 255, 255, 0.7);
+            line-height: 1.6;
+            margin-bottom: 1.5rem;
+        }
+        
+        /* Feature Tags */
+        .feature-tags {
+            display: flex;
+            justify-content: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        
+        .feature-tag {
+            background: rgba(139, 92, 246, 0.15);
+            border: 1px solid rgba(167, 139, 250, 0.25);
+            color: #c4b5fd;
+            padding: 0.4rem 0.9rem;
+            border-radius: 10px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        
+        /* Footer */
+        .footer {
+            background: #0F1B2D;
+            padding: 2rem 3rem;
+            text-align: center;
+            border-top: 1px solid rgba(148, 163, 184, 0.1);
+            margin-top: 4rem;
+        }
+        
+        .footer-text {
+            color: rgba(148, 163, 184, 0.7);
+            font-size: 0.9rem;
+            line-height: 1.8;
+            font-weight: 400;
+        }
+        
+        .footer-text:first-child {
+            margin-bottom: 0.5rem;
+        }
+        
+        /* Responsive */
+        @media (max-width: 992px) {
+            .features-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .header {
+                flex-direction: column;
+                gap: 1rem;
+                padding: 1.5rem 1.5rem;
+            }
+            
+            .nav {
+                width: 100%;
+                justify-content: center;
+            }
+            
+            .modal-content {
+                padding: 2rem 1.5rem;
+            }
+            
+            .modal-header {
+                margin-bottom: 2rem;
+            }
+            
+            .modal-title {
+                font-size: 1.5rem;
+            }
+            
+            .features-grid {
+                grid-template-columns: 1fr;
+                gap: 1.5rem;
+            }
+            
+            .feature-card {
+                padding: 2rem 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header Wrapper -->
+    <div class="header-wrapper">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo-container">
+                <div>
+                    <div class="logo">
+                        <h1>
+                            <a href="index.html">
+                                <span class="logo-text">SEGYE.</span><span class="logo-on">On</span>
+                            </a>
+                        </h1>
+                        <span class="badge">ONE-CLICK NEWS</span>
+                    </div>
+                    <p class="subtitle">AI 기반 원클릭 뉴스 생성 시스템</p>
+                </div>
+            </div>
+            
+            <nav class="nav">
+                <a href="features.html" class="nav-btn active">기능소개</a>
+                <a href="templates.html" class="nav-btn">템플릿</a>
+                <a href="stats.html" class="nav-btn">통계 LIVE</a>
+            </nav>
+        </header>
+    </div>
+    
+    <!-- Modal Container -->
+    <div class="modal-container">
+        <div class="modal-content">
+            <!-- ESC Text -->
+            <div class="esc-text">ESC 키로 닫기 닫기</div>
+            
+            <!-- Close Button -->
+            <button class="close-btn" onclick="window.location.href='index.html'">
+                <i class="fas fa-times"></i>
+            </button>
+            
+            <!-- Modal Header -->
+            <div class="modal-header">
+                <h2 class="modal-title">
+                    <i class="fas fa-sparkles"></i>
+                    프리미엄 기능
+                </h2>
+                <p class="modal-subtitle">SEGYE.On이 제공하는 전문가급 카드뉴스 생성 기능</p>
+            </div>
+            
+            <!-- Features Grid -->
+            <div class="features-grid">
+                <!-- Feature 1: 자동 이미지 추출 -->
+                <div class="feature-card">
+                    <div class="feature-icon icon-purple">
+                        <i class="fas fa-image"></i>
+                    </div>
+                    <h3 class="feature-title">자동 이미지 추출</h3>
+                    <p class="feature-description">
+                        URL에서 고품질 이미지를 자동으로 추출하여 카드뉴스에 최적화된 형태로 삽입합니다
+                    </p>
+                    <div class="feature-tags">
+                        <span class="feature-tag">1080x1920</span>
+                        <span class="feature-tag">고해상도</span>
+                    </div>
+                </div>
+                
+                <!-- Feature 2: AI 자동 분석 -->
+                <div class="feature-card">
+                    <div class="feature-icon icon-pink">
+                        <i class="fas fa-wand-magic-sparkles"></i>
+                    </div>
+                    <h3 class="feature-title">AI 자동 분석</h3>
+                    <p class="feature-description">
+                        뉴스 내용을 AI가 분석하여 카테고리, 키워드, 감정을 자동으로 파악합니다
+                    </p>
+                    <div class="feature-tags">
+                        <span class="feature-tag">5개 카테고리</span>
+                        <span class="feature-tag">실시간</span>
+                    </div>
+                </div>
+                
+                <!-- Feature 3: 6가지 하이브리드 레이아웃 -->
+                <div class="feature-card">
+                    <div class="feature-icon icon-cyan">
+                        <i class="fas fa-layer-group"></i>
+                    </div>
+                    <h3 class="feature-title">6가지 하이브리드 레이아웃</h3>
+                    <p class="feature-description">
+                        이미지와 텍스트가 완벽하게 조화된 전문 가급 레이아웃을 자동으로 적용합니다
+                    </p>
+                    <div class="feature-tags">
+                        <span class="feature-tag">Hero</span>
+                        <span class="feature-tag">Split</span>
+                        <span class="feature-tag">Collage</span>
+                    </div>
+                </div>
+                
+                <!-- Feature 4: 6가지 프리미엄 템플릿 -->
+                <div class="feature-card">
+                    <div class="feature-icon icon-green">
+                        <i class="fas fa-palette"></i>
+                    </div>
+                    <h3 class="feature-title">6가지 프리미엄 템플릿</h3>
+                    <p class="feature-description">
+                        뉴스 카테고리에 맞는 최적의 디자인 템플릿을 자동으로 선택합니다
+                    </p>
+                    <div class="feature-tags">
+                        <span class="feature-tag">CTR +420%</span>
+                        <span class="feature-tag">공유 +450%</span>
+                    </div>
+                </div>
+                
+                <!-- Feature 5: 초고속 생성 -->
+                <div class="feature-card">
+                    <div class="feature-icon icon-orange">
+                        <i class="fas fa-bolt"></i>
+                    </div>
+                    <h3 class="feature-title">초고속 생성</h3>
+                    <p class="feature-description">
+                        URL 입력 후 단 3초 만에 6-8장의 프리미엄 카드뉴스가 완성됩니다
+                    </p>
+                    <div class="feature-tags">
+                        <span class="feature-tag">3초</span>
+                        <span class="feature-tag">6-8장</span>
+                    </div>
+                </div>
+                
+                <!-- Feature 6: SNS 완벽 최적화 -->
+                <div class="feature-card">
+                    <div class="feature-icon icon-blue">
+                        <i class="fas fa-share-nodes"></i>
+                    </div>
+                    <h3 class="feature-title">SNS 완벽 최적화</h3>
+                    <p class="feature-description">
+                        Instagram, Facebook, 카카오톡 등 모든 SNS에 최적화된 포맷으로 생성됩니다
+                    </p>
+                    <div class="feature-tags">
+                        <span class="feature-tag">PNG</span>
+                        <span class="feature-tag">ZIP 다운로드</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Footer -->
+    <footer class="footer">
+        <p class="footer-text">© 2026 세계일보. All rights reserved.</p>
+        <p class="footer-text">SEGYE.On - AI 기반 원클릭 뉴스 생성 솔루션</p>
+    </footer>
+    
+    <script>
+        // ESC 키로 닫기
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                window.location.href = 'index.html';
+            }
+        });
+    </script>
+</body>
+</html>

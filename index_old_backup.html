@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>세계일보 AI 카드뉴스 생성기</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+        }
+        
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        
+        .input-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 600;
+        }
+        
+        input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        button {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            display: none;
+        }
+        
+        .status.success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+            display: block;
+        }
+        
+        .status.error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+            display: block;
+        }
+        
+        .status.loading {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+            display: block;
+        }
+        
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            display: none;
+        }
+        
+        .result.show {
+            display: block;
+        }
+        
+        .result h3 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .result pre {
+            background: white;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-size: 12px;
+            border: 1px solid #dee2e6;
+        }
+        
+        .server-status {
+            text-align: center;
+            margin-bottom: 20px;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        
+        .server-status.online {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .server-status.offline {
+            background: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 세계일보 AI 카드뉴스 생성기</h1>
+        <p class="subtitle">AI프런티어팀 | v8.0.0</p>
+        
+        <div id="serverStatus" class="server-status">
+            서버 상태 확인 중...
+        </div>
+        
+        <div class="input-group">
+            <label for="newsUrl">기사 URL</label>
+            <input 
+                type="text" 
+                id="newsUrl" 
+                placeholder="https://www.segye.com/newsView/20240130..."
+                value="https://www.segye.com/newsView/20240130123456"
+            >
+        </div>
+        
+        <button id="generateBtn" onclick="generateCardNews()">
+            AI로 카드뉴스 생성하기
+        </button>
+        
+        <div id="status" class="status"></div>
+        <div id="result" class="result"></div>
+    </div>
+    
+    <script>
+        // 백엔드 API URL
+        const API_BASE_URL = 'http://localhost:3000/api';
+        
+        // 페이지 로드 시 서버 상태 확인
+        window.addEventListener('DOMContentLoaded', checkServerStatus);
+        
+        async function checkServerStatus() {
+            const statusEl = document.getElementById('serverStatus');
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/health`);
+                const data = await response.json();
+                
+                if (data.status === 'ok') {
+                    statusEl.className = 'server-status online';
+                    statusEl.textContent = '✅ 백엔드 서버 연결됨';
+                } else {
+                    throw new Error('서버 응답 이상');
+                }
+            } catch (error) {
+                statusEl.className = 'server-status offline';
+                statusEl.textContent = '❌ 백엔드 서버 연결 실패';
+                console.error('서버 연결 오류:', error);
+            }
+        }
+        
+        async function generateCardNews() {
+            const urlInput = document.getElementById('newsUrl');
+            const generateBtn = document.getElementById('generateBtn');
+            const statusEl = document.getElementById('status');
+            const resultEl = document.getElementById('result');
+            
+            const url = urlInput.value.trim();
+            
+            // URL 검증
+            if (!url) {
+                showStatus('error', '❌ 기사 URL을 입력해주세요.');
+                return;
+            }
+            
+            // 버튼 비활성화
+            generateBtn.disabled = true;
+            generateBtn.textContent = '생성 중...';
+            
+            // 로딩 상태 표시
+            showStatus('loading', '🔄 AI가 카드뉴스를 생성하고 있습니다... (3-5초 소요)');
+            resultEl.className = 'result';
+            
+            try {
+                // 백엔드 API 호출
+                const response = await fetch(`${API_BASE_URL}/cardnews/generate`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ url })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`서버 오류: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                // 성공 메시지
+                showStatus('success', `✅ 카드뉴스 생성 완료! (${data.cards.length}장)`);
+                
+                // 결과 표시
+                showResult(data);
+                
+            } catch (error) {
+                console.error('생성 오류:', error);
+                showStatus('error', `❌ 오류 발생: ${error.message}`);
+            } finally {
+                // 버튼 활성화
+                generateBtn.disabled = false;
+                generateBtn.textContent = 'AI로 카드뉴스 생성하기';
+            }
+        }
+        
+        function showStatus(type, message) {
+            const statusEl = document.getElementById('status');
+            statusEl.className = `status ${type}`;
+            statusEl.textContent = message;
+        }
+        
+        function showResult(data) {
+            const resultEl = document.getElementById('result');
+            
+            let html = '<h3>📊 생성 결과</h3>';
+            html += `<p><strong>카테고리:</strong> ${data.category}</p>`;
+            html += `<p><strong>카드 수:</strong> ${data.cards.length}장</p>`;
+            html += `<p><strong>템플릿:</strong> ${data.analysisData.template}</p>`;
+            html += '<h4>카드 목록:</h4>';
+            html += '<pre>' + JSON.stringify(data.cards, null, 2) + '</pre>';
+            
+            resultEl.innerHTML = html;
+            resultEl.className = 'result show';
+        }
+    </script>
+</body>
+</html>
