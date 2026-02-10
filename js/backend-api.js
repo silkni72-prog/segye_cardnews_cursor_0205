@@ -159,6 +159,20 @@ function parseCardEdits(html) {
     return result;
 }
 
+// 카드에 backgroundImageUrl이 있으면, 편집용 이미지 필드가 비어있거나 placeholder일 때 해당 URL로 보정 (미리보기/Apply 일치)
+function applyBackgroundImageUrlToEdits(edits, card) {
+    const url = card && card.backgroundImageUrl && String(card.backgroundImageUrl).trim();
+    if (!url) return;
+    const isPlaceholder = (src) => !src || !String(src).trim() || String(src).trim().indexOf('data:image/svg') === 0;
+    if (edits.images && typeof edits.images === 'object') {
+        Object.keys(edits.images).forEach(function(key) {
+            if (key === 'bg-image' || key === 'cover-image' || key === 'context-image' || key === 'central-image') {
+                if (isPlaceholder(edits.images[key])) edits.images[key] = url;
+            }
+        });
+    }
+}
+
 // style 문자열에서 마지막 배경 이미지 url(...) 추출 (proxy/긴 URL 지원: 괄호 안의 url은 끝 따옴표까지 매칭)
 function extractBackgroundImageUrl(styleStr) {
     if (!styleStr || !String(styleStr).trim()) return '';
@@ -192,45 +206,91 @@ function isCompleteBackgroundImageUrl(url) {
     return false;
 }
 
-// 편집 내용을 카드 HTML에 반영 (카드 바탕색이 body + 내부 영역에 적용되도록)
-// 배경 이미지/색은 사용자가 값을 넣었을 때만 변경하고, 비어 있으면 기존 배경 유지(제멋대로 바뀌지 않도록)
+// style 문자열을 선언 단위로 쪼개서, 배경 관련만 제거 후 나머지 그대로 유지 (정규식 오동작 방지)
+var BG_PROPS_FULL = ['background', 'background-color', 'background-image', 'background-size', 'background-position'];
+var BG_PROPS_COLOR_ONLY = ['background', 'background-color'];
+
+// 값 안의 ; 를 구분자로 쓰지 않도록, 괄호/따옴표 밖의 ; 만 기준으로 선언 분리
+function parseStyleDeclarations(styleStr) {
+    if (!styleStr || !String(styleStr).trim()) return [];
+    var s = String(styleStr).trim();
+    var decls = [];
+    var start = 0;
+    var inQuote = null;
+    var parenDepth = 0;
+    for (var i = 0; i < s.length; i++) {
+        var c = s[i];
+        if (inQuote) {
+            if (c === inQuote) inQuote = null;
+            continue;
+        }
+        if (c === "'" || c === '"') {
+            inQuote = c;
+            continue;
+        }
+        if (c === '(') { parenDepth++; continue; }
+        if (c === ')') { parenDepth--; continue; }
+        if (c === ';' && parenDepth === 0) {
+            var part = s.slice(start, i).trim();
+            if (part) decls.push(part);
+            start = i + 1;
+        }
+    }
+    var last = s.slice(start).trim();
+    if (last) decls.push(last);
+    return decls;
+}
+
+function getStyleDeclarationName(decl) {
+    var idx = decl.indexOf(':');
+    if (idx === -1) return '';
+    return decl.slice(0, idx).trim().toLowerCase();
+}
+
+function styleDeclarationsWithoutBackground(styleStr, colorOnly) {
+    if (!styleStr || !String(styleStr).trim()) return [];
+    var decls = parseStyleDeclarations(styleStr);
+    var props = colorOnly ? BG_PROPS_COLOR_ONLY : BG_PROPS_FULL;
+    return decls.filter(function(decl) {
+        var name = getStyleDeclarationName(decl);
+        return props.indexOf(name) === -1;
+    });
+}
+
+// body용: 배경 관련 전부 제거한 나머지 선언만 반환
+function stripBackgroundFromStyle(styleStr) {
+    return styleDeclarationsWithoutBackground(styleStr, false).join('; ');
+}
+
+// div용: background/background-color만 제거한 나머지 선언만 반환
+function stripBackgroundColorFromStyle(styleStr) {
+    return styleDeclarationsWithoutBackground(styleStr, true).join('; ');
+}
+
+// 편집 내용을 카드 HTML에 반영. 배경은 :root{--card-bg} 블록 1회 삽입 + HTML 문자열에서 --card-bg 값만 정규식 치환. body/div에 background 직접 주입하지 않음.
 function applyCardEdits(html, edits) {
+    const formBgImage = edits.bodyBackgroundImage ? String(edits.bodyBackgroundImage).trim() : '';
+    const userWantsNewBgImage = formBgImage && isCompleteBackgroundImageUrl(formBgImage);
+    const cardBgColor = (edits.bodyBackground !== undefined && edits.bodyBackground !== '') ? String(edits.bodyBackground).trim() : '';
+    var hasBlock = html.indexOf(':root{--card-bg:') !== -1 && html.indexOf('html,body{background:var(--card-bg)') !== -1;
+    if (!hasBlock) {
+        var block = '<style>:root{--card-bg:#ffffff;} html,body{background:var(--card-bg)!important;} </style>';
+        if (html.indexOf('</head>') !== -1) {
+            html = html.replace('</head>', block + '\n</head>');
+        } else {
+            html = html.replace(/<body([^>]*)>/, '<body$1>\n' + block);
+        }
+    }
+    if (cardBgColor && !userWantsNewBgImage) {
+        html = html.replace(/--card-bg\s*:\s*[^;}\n]+/g, '--card-bg: ' + cardBgColor + ';');
+    }
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, 'text/html');
     const body = doc.body;
-    const style = (body.getAttribute('style') || '');
-    const formBgImage = edits.bodyBackgroundImage ? String(edits.bodyBackgroundImage).trim() : '';
-    const userWantsNewBgImage = formBgImage && isCompleteBackgroundImageUrl(formBgImage);
-    let newStyle = style;
-    // 배경 이미지: 사용자가 새 URL을 넣었을 때만 교체. 비어 있으면 기존 스타일 그대로 유지.
     if (userWantsNewBgImage) {
-        newStyle = style
-            .replace(/background:\s*[^;]+;?/gi, '')
-            .replace(/background-image:\s*[^;]+;?/gi, '')
-            .replace(/background-size:[^;]+;?/gi, '')
-            .replace(/background-position:[^;]+;?/gi, '');
-        const safeUrl = formBgImage.replace(/'/g, "%27");
-        newStyle = 'background-image: url(\'' + safeUrl + '\'); background-size: cover; background-position: center; ' + newStyle;
-    }
-    const cardBgColor = (edits.bodyBackground !== undefined && edits.bodyBackground !== '') ? String(edits.bodyBackground).trim() : '';
-    if (cardBgColor) {
-        newStyle = newStyle
-            .replace(/background:\s*[^;]+;?/gi, '')
-            .replace(/background-image:\s*[^;]+;?/gi, '')
-            .replace(/background-size:[^;]+;?/gi, '')
-            .replace(/background-position:[^;]+;?/gi, '');
-        newStyle = 'background: ' + cardBgColor + '; ' + newStyle;
-        body.setAttribute('style', newStyle.trim());
-        // 카드 내부 흰색/밝은 배경 영역도 같은 바탕색으로 통일 (표지 하단, 본문 영역 등)
-        [].slice.call(body.querySelectorAll('div')).forEach(function (el) {
-            var s = el.getAttribute('style') || '';
-            if (/background:\s*#?(fff|ffffff|f8fafc|f5f4f0|f1f5f9|e2e8f0|white)\b/i.test(s) || /background:\s*rgba?\(\s*255\s*,\s*255\s*,\s*255/i.test(s)) {
-                s = s.replace(/background:\s*[^;]+;?/gi, 'background: ' + cardBgColor + '; ');
-                el.setAttribute('style', s.trim());
-            }
-        });
-    } else if (newStyle !== style) {
-        body.setAttribute('style', newStyle.trim());
+        body.style.backgroundImage = 'url(\'' + formBgImage.replace(/'/g, "%27") + '\')';
+        body.style.backgroundSize = 'cover';
+        body.style.backgroundPosition = 'center';
     }
     doc.querySelectorAll('[data-editable]').forEach(el => {
         const key = el.getAttribute('data-editable');
@@ -241,32 +301,80 @@ function applyCardEdits(html, edits) {
                 const text = String(edits.texts[key]).replace(/\n/g, '<br/>').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
                 el.innerHTML = text;
             }
-            // 텍스트 색상·크기·굵기 적용 (배경색에 맞춰 글자색/가독성 조정 가능)
-            const applyColor = edits.textColor !== undefined && String(edits.textColor).trim() !== '';
-            const applySize = edits.textSizePx !== undefined && String(edits.textSizePx).trim() !== '';
-            const applyWeight = edits.fontWeight !== undefined && String(edits.fontWeight).trim() !== '';
-            if (applyColor || applySize || applyWeight) {
-                let s = el.getAttribute('style') || '';
-                if (applyColor) {
-                    s = s.replace(/\bcolor:\s*[^;]+;?/gi, '');
-                    s = 'color: ' + String(edits.textColor).trim() + '; ' + s;
+            if (key === 'author' || key === 'context') { /* style 고정: color/font-size/font-weight 적용하지 않음 */ } else {
+                // 텍스트 색상·크기·굵기 적용 (선언 단위로만 교체해 값 안의 ; 오동작 방지)
+                const applyColor = edits.textColor !== undefined && String(edits.textColor).trim() !== '';
+                const applySize = edits.textSizePx !== undefined && String(edits.textSizePx).trim() !== '';
+                const applyWeight = edits.fontWeight !== undefined && String(edits.fontWeight).trim() !== '';
+                if (applyColor || applySize || applyWeight) {
+                    var s = el.getAttribute('style') || '';
+                    var decls = parseStyleDeclarations(s);
+                    var dropNames = [];
+                    if (applyColor) dropNames.push('color');
+                    if (applySize) dropNames.push('font-size');
+                    if (applyWeight) dropNames.push('font-weight');
+                    decls = decls.filter(function(d) { return dropNames.indexOf(getStyleDeclarationName(d)) === -1; });
+                    var newParts = [];
+                    if (applyColor) newParts.push('color: ' + String(edits.textColor).trim());
+                    if (applySize) newParts.push('font-size: ' + (String(edits.textSizePx).trim().replace(/\D/g, '') || '40') + 'px');
+                    if (applyWeight) newParts.push('font-weight: ' + (String(edits.fontWeight).trim().replace(/\D/g, '') || '500'));
+                    el.setAttribute('style', newParts.concat(decls).join('; '));
                 }
-                if (applySize) {
-                    const px = String(edits.textSizePx).trim().replace(/\D/g, '') || '40';
-                    s = s.replace(/\bfont-size:\s*[^;]+;?/gi, '');
-                    s = 'font-size: ' + px + 'px; ' + s;
-                }
-                if (applyWeight) {
-                    const w = String(edits.fontWeight).trim().replace(/\D/g, '') || '500';
-                    s = s.replace(/\bfont-weight:\s*[^;]+;?/gi, '');
-                    s = 'font-weight: ' + w + '; ' + s;
-                }
-                el.setAttribute('style', s.trim());
             }
         }
     });
     const doctype = doc.doctype ? '<!DOCTYPE ' + doc.doctype.name + '>\n' : '<!DOCTYPE html>\n';
-    return doctype + doc.documentElement.outerHTML;
+    var result = doctype + doc.documentElement.outerHTML;
+    var bodyStyleStr = body.getAttribute('style') || '';
+    var bgDeclCount = (bodyStyleStr.match(/\bbackground(-color|-image)?\s*:/g) || []).length;
+    console.log('[BG] linear-gradient count:', (result.match(/linear-gradient/g) || []).length);
+    console.log('[BG] --card-bg present:', result.indexOf('--card-bg') !== -1);
+    console.log('[BG] body style background-related declarations:', bgDeclCount);
+    return result;
+}
+
+/** HTML 내 KEY POINT 등 → KEY FACT, data-card-type problem|point|key_point → key_fact 치환 (카드4 보정용) */
+function ensureKeyFactInCardHtml(html) {
+    if (!html || typeof html !== 'string') return html;
+    var out = html
+        .replace(/\bKEY\s*[-]?\s*POINT\b/gi, 'KEY FACT')
+        .replace(/\bKEYPOINT\b/gi, 'KEY FACT');
+    out = out.replace(/\bdata-card-type\s*=\s*["'](?:problem|point|key_point)["']/gi, 'data-card-type="key_fact"');
+    return out;
+}
+
+/** 프론트 카드 정규화: index 3 또는 cardNumber 4면 무조건 key_fact, html 라벨·data-card-type 치환 */
+function normalizeCard(card, index) {
+    if (!card || typeof card !== 'object') return card;
+    var c = { ...card };
+    var isCard4 = c.cardNumber === 4 || index === 3;
+    if (isCard4) {
+        c.type = 'key_fact';
+        c.title = c.title || 'KEY FACT';
+        c.visualConcept = c.visualConcept || 'KEY FACT';
+    }
+    if (c.html) {
+        c.html = ensureKeyFactInCardHtml(c.html);
+    }
+    return c;
+}
+
+/** 타입만 보고 라벨 반환. card4(index 3)는 무조건 KEY FACT. */
+function getCardLabel(card, index) {
+    if (index === 3 || (card && card.cardNumber === 4)) return 'KEY FACT';
+    var type = (card && card.type) || '';
+    var map = {
+        cover: '표지',
+        quote: 'QUOTE',
+        context: 'CONTEXT',
+        key_fact: 'KEY FACT',
+        why: 'WHY',
+        debate: 'THE DEBATE',
+        closing: '마무리'
+    };
+    if (map[type]) return map[type];
+    if (/content|problem|key_point/i.test(type)) return '본문';
+    return type ? type : '본문';
 }
 
 function sectionTitle(title) {
@@ -422,6 +530,7 @@ function collectEditsFromForm(form, editsKeys) {
 function openCardEditor(card, cardNumber, iframe, cardElement) {
     const baseHtml = card.html; // 모달을 연 시점의 HTML을 기준으로 실시간 반영
     const edits = parseCardEdits(baseHtml);
+    applyBackgroundImageUrlToEdits(edits, card);
     const editsKeys = { texts: Object.keys(edits.texts), images: Object.keys(edits.images) };
 
     const modal = document.createElement('div');
@@ -538,6 +647,7 @@ function buildCardEditPanel(container, card, cardNumber, mainIframe, thumbIframe
     container.innerHTML = '';
     const baseHtml = card.html;
     const edits = parseCardEdits(baseHtml);
+    applyBackgroundImageUrlToEdits(edits, card);
     const editsKeys = { texts: Object.keys(edits.texts), images: Object.keys(edits.images) };
     const panelTitle = document.createElement('div');
     panelTitle.style.cssText = 'font-size:0.8rem;font-weight:800;color:#e2e8f0;margin:1rem 0 0.5rem 0;padding-bottom:0.4rem;border-bottom:1px solid rgba(148,163,184,0.3);';
@@ -605,19 +715,47 @@ function buildCardEditPanel(container, card, cardNumber, mainIframe, thumbIframe
     form.appendChild(applyBtn);
     function updatePreview() {
         const newEdits = collectEditsFromForm(form, editsKeys);
+        console.log("[BG] edits.bodyBackground =", newEdits.bodyBackground);
         const newHtml = applyCardEdits(baseHtml, newEdits);
+        console.log("[BG] applyCardEdits called");
+        console.log("[BG] newHtml !== baseHtml", newHtml !== baseHtml);
+        console.log("[BG] newHtml includes background-color", /background-color|backgroundColor/.test(newHtml));
+        console.log("[BG] newHtml includes linear-gradient", newHtml.indexOf('linear-gradient') !== -1);
+        mainIframe.setAttribute('srcdoc', '');
         mainIframe.setAttribute('srcdoc', newHtml);
-        if (thumbIframe) thumbIframe.setAttribute('srcdoc', newHtml);
+        if (thumbIframe) {
+            thumbIframe.setAttribute('srcdoc', '');
+            thumbIframe.setAttribute('srcdoc', newHtml);
+        }
     }
     form.addEventListener('input', updatePreview);
     form.addEventListener('change', updatePreview);
+    var bgColorInput = form.querySelector('input[name="bodyBackground"]');
+    if (bgColorInput) {
+        bgColorInput.addEventListener('input', updatePreview);
+        bgColorInput.addEventListener('change', updatePreview);
+    }
     form.onsubmit = function(e) {
         e.preventDefault();
         const newEdits = collectEditsFromForm(form, editsKeys);
-        const newHtml = applyCardEdits(baseHtml, newEdits);
-        card.html = newHtml;
-        mainIframe.setAttribute('srcdoc', newHtml);
-        if (thumbIframe) thumbIframe.setAttribute('srcdoc', newHtml);
+        console.log("[BG] edits.bodyBackground =", newEdits.bodyBackground);
+        let newHtml = applyCardEdits(baseHtml, newEdits);
+        console.log("[BG] applyCardEdits called");
+        console.log("[BG] newHtml !== baseHtml", newHtml !== baseHtml);
+        console.log("[BG] newHtml includes background-color", /background-color|backgroundColor/.test(newHtml));
+        console.log("[BG] newHtml includes linear-gradient", newHtml.indexOf('linear-gradient') !== -1);
+        var cardIndex = (cardNumber >= 1) ? cardNumber - 1 : -1;
+        var normalized = normalizeCard({ ...card, html: newHtml }, cardIndex);
+        card.html = normalized.html;
+        card.type = normalized.type;
+        card.title = normalized.title;
+        card.visualConcept = normalized.visualConcept;
+        mainIframe.setAttribute('srcdoc', '');
+        mainIframe.setAttribute('srcdoc', card.html);
+        if (thumbIframe) {
+            thumbIframe.setAttribute('srcdoc', '');
+            thumbIframe.setAttribute('srcdoc', card.html);
+        }
     };
     container.appendChild(form);
 }
@@ -645,7 +783,7 @@ function displayCardNews(cardnewsData, sourceUrl) {
         `;
         document.head.appendChild(style);
     }
-    const cards = cardnewsData.cardnews.cards;
+    let cards = (cardnewsData.cardnews.cards || []).map(function(c, i) { return normalizeCard(c, i); });
     let selectedIndex = 0;
     const viewer = document.createElement('div');
     viewer.id = 'cardnewsViewer';
@@ -879,6 +1017,12 @@ function displayCardNews(cardnewsData, sourceUrl) {
                     if (cards[i]) cards[i].html = (item && item.html !== undefined) ? item.html : item;
                     if (thumbIframes[i]) thumbIframes[i].setAttribute('srcdoc', cards[i].html);
                 });
+                cards = cards.map(function(c, i) { return normalizeCard(c, i); });
+                if (cards[3]) {
+                    console.log('[UI] label for card4 (after apply-defaults):', getCardLabel(cards[3], 3), 'type:', cards[3].type);
+                    var card4Item = cardListWrap.querySelector('[data-card-index="3"]');
+                    if (card4Item && card4Item.children.length >= 2) card4Item.children[1].textContent = '4 · ' + getCardLabel(cards[3], 3);
+                }
                 if (mainIframe) mainIframe.setAttribute('srcdoc', cards[selectedIndex].html);
                 editPanelScroll.innerHTML = '';
                 buildCardEditPanel(editPanelScroll, cards[selectedIndex], selectedIndex + 1, mainIframe, thumbIframes[selectedIndex]);
@@ -897,6 +1041,11 @@ function displayCardNews(cardnewsData, sourceUrl) {
                 c.html = applyCardEdits(currentHtml, { fontWeight: fontWeight });
                 if (thumbIframes[i]) thumbIframes[i].setAttribute('srcdoc', c.html);
             });
+            cards = cards.map(function(c, i) { return normalizeCard(c, i); });
+            if (cards[3]) {
+                var card4Item = cardListWrap.querySelector('[data-card-index="3"]');
+                if (card4Item && card4Item.children.length >= 2) card4Item.children[1].textContent = '4 · ' + getCardLabel(cards[3], 3);
+            }
             if (mainIframe) mainIframe.setAttribute('srcdoc', cards[selectedIndex].html);
             editPanelScroll.innerHTML = '';
             buildCardEditPanel(editPanelScroll, cards[selectedIndex], selectedIndex + 1, mainIframe, thumbIframes[selectedIndex]);
@@ -946,7 +1095,9 @@ function displayCardNews(cardnewsData, sourceUrl) {
         thumbIframes.push(thumb);
         const label = document.createElement('div');
         label.style.cssText = 'position:absolute;bottom:0;left:0;right:0;padding:4px 8px;background:rgba(15,23,42,0.9);color:#e2e8f0;font-size:0.7rem;font-weight:700;';
-        label.textContent = (index + 1) + ' · ' + (card.type === 'cover' ? '표지' : card.type === 'content' ? '본문' : '마무리');
+        const derivedLabel = getCardLabel(card, index);
+        if (index === 3) console.log('[UI] label for card4:', derivedLabel, 'type:', card.type);
+        label.textContent = (index + 1) + ' · ' + derivedLabel;
         item.appendChild(label);
         item.onclick = () => selectCard(index);
         cardListWrap.appendChild(item);
@@ -966,7 +1117,7 @@ function displayCardNews(cardnewsData, sourceUrl) {
     previewWrap.className = 'card-preview-wrap';
     previewWrap.style.cssText = 'flex:1;min-height:0;position:relative;overflow:auto;background:#334155;display:flex;align-items:center;justify-content:center;padding:1rem;';
     const mainIframeOuter = document.createElement('div');
-    mainIframeOuter.style.cssText = 'position:relative;flex-shrink:0;box-shadow:0 8px 32px rgba(0,0,0,0.4);border-radius:8px;overflow:visible;';
+    mainIframeOuter.style.cssText = 'position:relative;flex-shrink:0;box-shadow:0 8px 32px rgba(0,0,0,0.4);border-radius:8px;overflow:visible;font-family:\'Pretendard\',\'Noto Sans KR\',sans-serif;';
     const mainIframe = document.createElement('iframe');
     mainIframe.setAttribute('srcdoc', cards[0].html);
     mainIframe.style.cssText = 'position:absolute;top:0;left:0;width:1080px;height:1350px;border:none;transform-origin:top left;';
@@ -1002,6 +1153,7 @@ function displayCardNews(cardnewsData, sourceUrl) {
         selectedIndex = index;
         const card = cards[index];
         mainIframe.setAttribute('srcdoc', card.html);
+        if (thumbIframes[index]) thumbIframes[index].setAttribute('srcdoc', card.html);
         cardListWrap.querySelectorAll('[data-card-index]').forEach(el => {
             el.style.borderColor = el.dataset.cardIndex === String(index) ? '#0ea5e9' : 'transparent';
             el.style.boxShadow = el.dataset.cardIndex === String(index) ? '0 0 0 2px #0ea5e9' : 'none';

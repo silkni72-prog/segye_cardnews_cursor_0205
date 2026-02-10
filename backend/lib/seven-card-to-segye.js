@@ -13,6 +13,7 @@ const { detectCategory, getCategoryLabel } = require('./backgroundGenerator');
 
 const CARD_WIDTH = 1080;
 const CARD_HEIGHT = 1350;
+const PRETENDARD_CSS_URL = 'https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/static/pretendard.min.css';
 
 function escapeHtml(text) {
     if (!text) return '';
@@ -21,6 +22,183 @@ function escapeHtml(text) {
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
+}
+
+/** HTML 내 KEY POINT 등 → KEY FACT, data-card-type problem|point|key_point → key_fact 치환 (카드4 보정용) */
+function ensureKeyFactInCardHtml(html) {
+    if (!html || typeof html !== 'string') return html;
+    let out = html
+        .replace(/\bKEY\s*[-]?\s*POINT\b/gi, 'KEY FACT')
+        .replace(/\bKEYPOINT\b/gi, 'KEY FACT');
+    out = out.replace(/\bdata-card-type\s*=\s*["'](?:problem|point|key_point)["']/gi, 'data-card-type="key_fact"');
+    return out;
+}
+
+/** KEY FACT 규격: Label 2~8자, Value 24자·7단어 이하 */
+const KEYFACT_LABEL_MIN = 2;
+const KEYFACT_LABEL_MAX = 8;
+const KEYFACT_VALUE_MAX_CHARS = 24;
+const KEYFACT_VALUE_MAX_WORDS = 7;
+const VALUE_MAX_LEN = KEYFACT_VALUE_MAX_CHARS;
+
+const SENTENCE_END = /(다|한다|있다|였다|했다|이다|됩니다|습니다|우려|가능|위해|대해)\s*$/;
+
+/** 단일 fact "Label: Value" 검사·정규화. 유효하면 문자열 반환, 아니면 null */
+function normalizeKeyFactFact(entry) {
+    if (typeof entry !== 'string' || !entry.includes(':')) return null;
+    const s = entry.replace(/\uFF1A/g, ':').replace(/\s+/g, ' ').trim();
+    const idx = s.indexOf(':');
+    const label = s.slice(0, idx).trim();
+    let value = s.slice(idx + 1).trim();
+    if (label.length < KEYFACT_LABEL_MIN || label.length > KEYFACT_LABEL_MAX) return null;
+    const words = value.split(/\s+/).filter(Boolean);
+    if (words.length > KEYFACT_VALUE_MAX_WORDS) return null;
+    value = value.slice(0, KEYFACT_VALUE_MAX_CHARS);
+    if (SENTENCE_END.test(value)) return null;
+    const pctMatch = value.match(/(\d+(?:\.\d+)?)\s*%/);
+    if (pctMatch) {
+        const n = parseFloat(pctMatch[1], 10);
+        if (n < 0 || n > 100) return null;
+    }
+    return label + ': ' + value;
+}
+
+/** facts 배열 정규화: 3~5개 짧은 "Label: Value"만 반환 */
+function normalizeKeyFactFacts(facts) {
+    if (!Array.isArray(facts)) return [];
+    const seen = new Set();
+    const out = [];
+    for (let i = 0; i < facts.length && out.length < 5; i++) {
+        const normalized = normalizeKeyFactFact(facts[i]);
+        if (!normalized) continue;
+        const key = normalized.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(normalized);
+    }
+    return out.slice(0, 5);
+}
+
+function addFact(facts, seen, label, value) {
+    const v = String(value).replace(/\s+/g, ' ').trim().slice(0, VALUE_MAX_LEN);
+    if (!v) return;
+    if (label.length < KEYFACT_LABEL_MIN || label.length > KEYFACT_LABEL_MAX) return;
+    const entry = label + ': ' + v;
+    const key = (label + ':' + v).toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    facts.push(entry);
+}
+
+/** 1순위: 숫자(금액·비율·날짜) 기반 "Label: Value" 추출 */
+function extractNumberFacts(text, facts, seen) {
+    if (!text || facts.length >= 5) return;
+    const s = String(text);
+    let m;
+    const contextLabels = /(매출|증가율|금액|비용|투자|규모|시장점유율)/;
+    const amountRe = /(\d+(?:[,.]\d+)*)\s*(억|만|조)?\s*(원|달러|유로|엔|억원|만원|조원)/g;
+    while ((m = amountRe.exec(s)) !== null && facts.length < 5) {
+        const value = m[0].trim();
+        const label = contextLabels.test(s.slice(Math.max(0, m.index - 20), m.index)) ? (s.slice(Math.max(0, m.index - 20), m.index + 1).match(/(매출|증가율|금액|비용|투자|규모|시장점유율)/)?.[1] || '금액') : '금액';
+        addFact(facts, seen, label, value);
+    }
+    const rateRe = /(전년\s*대비\s*)?(\d+(?:\.\d+)?)\s*%/g;
+    while ((m = rateRe.exec(s)) !== null && facts.length < 5) {
+        const num = parseFloat(m[2], 10);
+        if (num >= 0 && num <= 100) addFact(facts, seen, '증가율', m[0].trim());
+    }
+    const dateRe = /(\d{4})\s*년|(\d{1,2})\s*월\s*(\d{1,2})\s*일/g;
+    while ((m = dateRe.exec(s)) !== null && facts.length < 5) {
+        const value = m[0].trim();
+        const label = /완공|준공|개장|설립/.test(s.slice(Math.max(0, m.index - 15), m.index)) ? '완공' : '연도';
+        addFact(facts, seen, label, value);
+    }
+}
+
+/** 2순위: 고유명사(장소·인물·기관) 추출 */
+function extractProperNounFacts(text, facts, seen) {
+    if (!text || facts.length >= 5) return;
+    const s = String(text);
+    let m;
+    const placeRe = /([가-힣A-Za-z]+(?:시|국|도|구|군|동|공원|빌딩|타워|광장|역)|[A-Za-z]+(?:burg|berg|polis|city|Park|Square)\b|[가-힣]{2,6}\s*(?:시|도|공원))/g;
+    while ((m = placeRe.exec(s)) !== null && facts.length < 5) {
+        const value = (m[1] || m[0]).trim().slice(0, KEYFACT_VALUE_MAX_CHARS);
+        if (value.length >= 2) addFact(facts, seen, '위치', value);
+    }
+    const personRe = /(건축가|대표|교수|연구원|위원장|장관|총리)\s*([가-힣A-Za-z·\s]{2,20})/g;
+    while ((m = personRe.exec(s)) !== null && facts.length < 5) {
+        const name = m[2].replace(/\s+/g, ' ').trim().slice(0, KEYFACT_VALUE_MAX_CHARS);
+        if (name.length >= 2) addFact(facts, seen, m[1], name);
+    }
+    const orgRe = /(UNESCO|WHO|IMF|OECD|(?:주식회사|\(주\)|그룹|재단|협회)\s*[가-힣A-Za-z0-9]+|세계유산\s*(?:으로\s*)?지정)/gi;
+    while ((m = orgRe.exec(s)) !== null && facts.length < 5) {
+        const value = m[0].trim().slice(0, KEYFACT_VALUE_MAX_CHARS);
+        const label = /지정|세계유산/.test(value) ? '지정' : '기관';
+        addFact(facts, seen, label, value);
+    }
+}
+
+/** 3·4순위: 사건 결과·핵심 변화 — 짧은 값(24자 이내)만 추가, 문장형 제외 */
+function extractOutcomeAndChangeFacts(text, facts, seen) {
+    if (!text || facts.length >= 5) return;
+    const s = String(text);
+    const sentences = s.split(/[.\n。！？!?]\s*|\n+/).map(x => x.trim()).filter(x => x.length >= 10 && x.length <= 120);
+    const outcomeKw = ['지정됨', '선정', '발표', '결정', '인정', '선정됨', '지정'];
+    const changeKw = ['핵심 사업', '시장점유율', '전환', '확대'];
+    for (const sent of sentences) {
+        if (facts.length >= 5) break;
+        for (const kw of outcomeKw) {
+            if (sent.includes(kw)) {
+                const value = sent.replace(/\s+/g, ' ').trim().slice(0, KEYFACT_VALUE_MAX_CHARS);
+                if (value.length <= KEYFACT_VALUE_MAX_CHARS && !SENTENCE_END.test(value)) addFact(facts, seen, '결과', value);
+                break;
+            }
+        }
+        for (const kw of changeKw) {
+            if (sent.includes(kw)) {
+                const idx = sent.indexOf(kw);
+                const value = sent.slice(idx).replace(/\s+/g, ' ').trim().slice(0, KEYFACT_VALUE_MAX_CHARS);
+                if (value.length <= KEYFACT_VALUE_MAX_CHARS && !SENTENCE_END.test(value)) addFact(facts, seen, kw, value);
+                break;
+            }
+        }
+    }
+}
+
+/** AI 미제공 시 기사에서 우선순위 추출: 숫자 → 고유명사 → 사건 결과·핵심 변화. 문장 보강 없음. 0~5개 "Label: Value". */
+function extractFallbackFacts(article, sevenCard) {
+    const content = (article.content || article.description || '').trim();
+    const summary = (article.title || '').trim();
+    const problem = (sevenCard && sevenCard.coreProblem) ? String(sevenCard.coreProblem).trim() : '';
+    const card4Key = (sevenCard && sevenCard.card4KeySentence) ? String(sevenCard.card4KeySentence).trim() : '';
+    const card4Exp = (sevenCard && sevenCard.card4Explanation) ? String(sevenCard.card4Explanation).trim() : '';
+    const combined = [content, summary, problem].filter(Boolean).join('\n');
+    const facts = [];
+    const seen = new Set();
+
+    extractNumberFacts(combined, facts, seen);
+    extractProperNounFacts(combined, facts, seen);
+    extractOutcomeAndChangeFacts(combined, facts, seen);
+    extractNumberFacts(card4Key + ' ' + card4Exp, facts, seen);
+    extractProperNounFacts(card4Key + ' ' + card4Exp, facts, seen);
+
+    return normalizeKeyFactFacts(facts.slice(0, 5));
+}
+
+/** 서버 측 카드 정규화: cardNumber 4면 무조건 key_fact, title/visualConcept 정리, html 라벨·data-card-type 치환 */
+function normalizeCardServer(card, index) {
+    if (!card || typeof card !== 'object') return card;
+    const c = { ...card };
+    const isCard4 = c.cardNumber === 4 || index === 3;
+    if (isCard4) {
+        c.type = 'key_fact';
+        c.title = c.title || 'KEY FACT';
+        c.visualConcept = c.visualConcept || 'KEY FACT';
+    }
+    if (c.html) {
+        c.html = ensureKeyFactInCardHtml(c.html);
+    }
+    return c;
 }
 
 function imageProxyUrl(rawUrl, baseUrl) {
@@ -60,9 +238,15 @@ const textureOverlay = `
 
 function getBaseStyles(cardWidth, cardHeight) {
     return `
+@import url('https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/static/pretendard.min.css');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@500&display=swap');
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Pretendard','Noto Sans KR',-apple-system,sans-serif;width:${cardWidth}px;height:${cardHeight}px;position:relative;overflow:hidden}
+html,body{font-family:'Pretendard','Noto Sans KR',-apple-system,sans-serif;font-weight:500;line-height:1.6;width:${cardWidth}px;height:${cardHeight}px;position:relative;overflow:hidden}
+[data-editable]{font-family:inherit}
 img{object-fit:cover}
+.card-label{font-family:'Inter',sans-serif;font-weight:500;letter-spacing:0.12em}
+.card-author{font-family:'Pretendard',sans-serif;font-size:43px;font-weight:600;color:#fcd34d;margin:0 0 48px 0;text-shadow:0 0 20px rgba(252,211,77,0.4);text-align:center}
+.card-context{font-family:'Pretendard',sans-serif;font-size:42px;font-weight:500;color:rgba(255,255,255,0.85);line-height:1.6;text-align:center;text-shadow:none;margin:0}
 ${textureOverlay}
 `;
 }
@@ -77,7 +261,7 @@ function createCard1Cover(data, cardNumber, totalCards, catLabel, imageUrl, base
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>카드 ${cardNumber}</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="${PRETENDARD_CSS_URL}">
 <style>${getBaseStyles(w, h)}</style>
 </head>
 <body data-card-type="cover" style="background:#fff;display:flex;flex-direction:column;padding:0;position:relative;">
@@ -88,7 +272,7 @@ ${segyeLogoAndPageNum(true, cardNumber, totalCards, baseUrl)}
         <div style="margin-bottom:24px;">
             <span style="display:inline-block;background:#dc2626;color:#fff;padding:14px 28px;border-radius:999px;font-size:32px;font-weight:800;letter-spacing:0.08em;">HEADLINE</span>
         </div>
-        <h1 data-editable="headline" style="font-family:'Pretendard',sans-serif;font-size:90%;font-weight:900;line-height:1.35;color:#0f172a;text-align:center;word-break:keep-all;margin:0;width:100%;max-width:100%;">${(function() { const raw = (data.title || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n'); const lines = raw.split('\n').map(function(s) { return s.trim(); }).filter(Boolean).slice(0, 2).map(function(s) { return escapeHtml(s.length > 10 ? s.slice(0, 10) : s); }); return lines.join('<br/>'); })()}</h1>
+        <h1 data-editable="headline" style="font-family:'Pretendard',sans-serif;font-size:90%;font-weight:800;line-height:1.35;color:#0f172a;text-align:center;word-break:keep-all;margin:0;width:100%;max-width:100%;">${(function() { const raw = (data.title || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n'); const lines = raw.split('\n').map(function(s) { return s.trim(); }).filter(Boolean).slice(0, 2).map(function(s) { return escapeHtml(s.length > 10 ? s.slice(0, 10) : s); }); return lines.join('<br/>'); })()}</h1>
     </div>
 </div>
 ${footerHtml(cardNumber, totalCards, sourceReporter, true)}
@@ -103,25 +287,26 @@ function createCard2Quote(data, cardNumber, totalCards, catLabel, imageUrl, base
     const quoteLine = (lines[0] || '').replace(/^[""]|[""]$/g, '').trim().replace(/\./g, '');
     const authorLine = (lines[1] || '').replace(/^—\s*/, '').trim();
     const subLine = (lines.slice(2).join(' ').replace(/—\s*/g, '') || '').trim().replace(/\./g, '');
-    const bgStyle = 'background: linear-gradient(165deg, #0f172a 0%, #1e3a5f 45%, #0c4a6e 100%);';
+    const cardBgDefault = 'linear-gradient(165deg, #0f172a 0%, #1e3a5f 45%, #0c4a6e 100%)';
+    const bodyStyle = '--card-bg: ' + cardBgDefault + '; background: var(--card-bg); display:flex;flex-direction:column;padding:0;position:relative;min-height:100%;';
     return `<!DOCTYPE html>
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>카드 ${cardNumber}</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="${PRETENDARD_CSS_URL}">
 <style>${getBaseStyles(w, h)}</style>
 </head>
-<body data-card-type="quote" style="${bgStyle} display:flex;flex-direction:column;padding:0;position:relative;min-height:100%;">
+<body data-card-type="quote" style="${bodyStyle}">
 ${segyeLogoAndPageNum(false, cardNumber, totalCards, baseUrl)}
 <div style="position:relative;z-index:2;flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:56px 56px 80px;">
     <div style="width:100%;max-width:100%;margin-bottom:48px;text-align:center;">
         <p data-editable="quote" style="font-family:'Pretendard',sans-serif;font-size:104px;font-weight:800;line-height:1.5;color:#fff;word-break:keep-all;margin:0;text-align:center;">&ldquo;${escapeHtml(quoteLine)}&rdquo;</p>
     </div>
     <div style="width:70%;max-width:70%;margin:0 auto;text-align:center;">
-        ${authorLine ? `<div style="width:288px;height:4px;background:rgba(255,255,255,0.6);margin:0 auto 48px;"></div><p data-editable="author" style="font-size:43px;font-weight:600;color:#fcd34d;margin:0 0 48px 0;text-shadow:0 0 20px rgba(252,211,77,0.4);text-align:center;">${escapeHtml(authorLine)}</p>` : ''}
-        ${subLine ? `<p data-editable="context" style="font-size:42px;color:rgba(255,255,255,0.85);line-height:1.55;margin:0;text-align:center;">${escapeHtml(subLine)}</p>` : ''}
+        ${authorLine ? `<div style="width:288px;height:4px;background:rgba(255,255,255,0.6);margin:0 auto 48px;"></div><p data-editable="author" class="card-author">${escapeHtml(authorLine)}</p>` : ''}
+        ${subLine ? `<p data-editable="context" class="card-context">${escapeHtml(subLine)}</p>` : ''}
     </div>
 </div>
 ${footerHtml(cardNumber, totalCards, sourceReporter, false)}
@@ -143,7 +328,7 @@ function createCard3Context(data, cardNumber, totalCards, catLabel, imageUrl, ba
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>카드 ${cardNumber}</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="${PRETENDARD_CSS_URL}">
 <style>${getBaseStyles(w, h)}</style>
 </head>
 <body data-card-type="context" style="background:#fff;display:flex;flex-direction:column;padding:0;position:relative;">
@@ -152,8 +337,8 @@ ${segyeLogoAndPageNum(true, cardNumber, totalCards, baseUrl)}
     <div data-editable="context-image-wrap" style="width:100%;height:630px;flex-shrink:0;overflow:hidden;background:#e2e8f0;"><img data-editable="bg-image" src="${imgSrc}" alt="" style="width:100%;height:100%;object-fit:cover;"${fallbackAttr} /></div>
     <div style="flex:1;min-height:0;overflow-y:auto;background:#fff;padding:40px 56px 80px;display:flex;flex-direction:column;align-items:stretch;">
         <div style="width:90%;max-width:90%;margin:0 auto;text-align:center;">
-            <div style="color:#64748b;font-size:41px;font-weight:800;letter-spacing:0.14em;margin-bottom:48px;text-align:center;padding-bottom:12px;border-bottom:3px solid #e2e8f0;">CONTEXT</div>
-            <p data-editable="context-keyline" style="font-family:'Pretendard',sans-serif;font-size:52px;font-weight:500;line-height:1.65;color:#1e293b;word-break:keep-all;width:100%;max-width:100%;text-align:center;margin:0;">${(function() { const raw = (data.contextKeyLine || data.text || '').trim().slice(0, 300); let out = raw; if (out && !/[.。]$/.test(out) && !/다$|했다$|였다$|있다$|한다$|니다$/.test(out)) { const lastDot = out.lastIndexOf('.'); if (lastDot > 0) out = out.slice(0, lastDot + 1).trim(); } return escapeHtml(out || '').replace(/\n/g, '<br/>'); })()}</p>
+            <div class="card-label" style="color:#64748b;font-size:41px;margin-bottom:48px;text-align:center;padding-bottom:12px;border-bottom:3px solid #e2e8f0;">CONTEXT</div>
+            <p data-editable="context-keyline" style="font-family:'Pretendard',sans-serif;font-size:52px;font-weight:500;line-height:1.6;color:#1e293b;word-break:keep-all;width:100%;max-width:100%;text-align:center;margin:0;">${(function() { const raw = (data.contextKeyLine || data.text || '').trim().slice(0, 300); let out = raw; if (out && !/[.。]$/.test(out) && !/다$|했다$|였다$|있다$|한다$|니다$/.test(out)) { const lastDot = out.lastIndexOf('.'); if (lastDot > 0) out = out.slice(0, lastDot + 1).trim(); } return escapeHtml(out || '').replace(/\n/g, '<br/>'); })()}</p>
         </div>
     </div>
 </div>
@@ -260,17 +445,57 @@ function createCard4Problem(data, cardNumber, totalCards, catLabel, imageUrl, ba
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>카드 ${cardNumber}</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="${PRETENDARD_CSS_URL}">
 <style>${getBaseStyles(w, h)}</style>
 </head>
-<body data-card-type="problem" style="background:${cardBg};display:flex;flex-direction:column;padding:0;position:relative;">
+<body data-card-type="key_fact" style="background:${cardBg};display:flex;flex-direction:column;padding:0;position:relative;">
 ${segyeLogoAndPageNum(true, cardNumber, totalCards, baseUrl)}
 <div style="position:relative;z-index:1;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:56px;">
     <div style="width:100%;max-width:900px;margin-bottom:28px;">
-        <div style="color:#64748b;font-size:41px;font-weight:800;letter-spacing:0.14em;text-align:center;padding-bottom:12px;border-bottom:3px solid #cbd5e1;">KEY POINT</div>
+        <div class="card-label" style="color:#64748b;font-size:41px;text-align:center;padding-bottom:12px;border-bottom:3px solid #cbd5e1;">KEY FACT</div>
     </div>
     <h2 data-editable="card4-key-sentence" style="font-family:'Pretendard',sans-serif;font-size:58px;font-weight:800;line-height:1.4;color:#0f172a;word-break:keep-all;margin:0 0 24px 0;max-width:900px;">${escapeHtml(keySentence)}</h2>
     <p data-editable="card4-explanation" style="font-family:'Pretendard',sans-serif;font-size:42px;font-weight:500;line-height:1.6;color:#475569;word-break:keep-all;margin:0;max-width:880px;">${escapeHtml(explanation)}</p>
+</div>
+${footerHtml(cardNumber, totalCards, sourceReporter, true)}
+</body>
+</html>`;
+}
+
+/** 카드4: KEY FACT — 뉴스룸 스타일, 1~5개 "Label: Value" 또는 "사실: ..." 형태로 나열 (콜론 없으면 "사실: " 접두어) */
+function createCard4KeyFact(data, cardNumber, totalCards, catLabel, imageUrl, baseUrl, sourceReporter, cardWidth, cardHeight) {
+    const w = cardWidth || CARD_WIDTH;
+    const h = cardHeight || CARD_HEIGHT;
+    const facts = Array.isArray(data.facts) ? data.facts : [];
+    const normalized = facts
+        .filter((s) => typeof s === 'string' && String(s).trim().length > 0)
+        .map((s) => {
+            const t = String(s).trim();
+            return t.includes(':') ? t : '사실: ' + t;
+        })
+        .slice(0, 5);
+    const cardBg = 'linear-gradient(165deg, #e2e8f0 0%, #f1f5f9 50%, #e2e8f0 100%)';
+    const factsHtml = normalized.length
+        ? normalized.map((line) => `<p data-editable="key-fact-line" style="font-family:'Pretendard',sans-serif;font-size:46px;font-weight:500;line-height:1.5;color:#1e293b;word-break:keep-all;margin:0 0 20px 0;max-width:900px;">${escapeHtml(String(line).trim())}</p>`).join('')
+        : '<p style="font-family:\'Pretendard\',sans-serif;font-size:42px;color:#64748b;margin:0;">핵심 사실을 확인하세요.</p>';
+    return `<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>카드 ${cardNumber}</title>
+<link rel="stylesheet" href="${PRETENDARD_CSS_URL}">
+<style>${getBaseStyles(w, h)}</style>
+</head>
+<body data-card-type="key_fact" style="background:${cardBg};display:flex;flex-direction:column;padding:0;position:relative;">
+${segyeLogoAndPageNum(true, cardNumber, totalCards, baseUrl)}
+<div style="position:relative;z-index:1;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:56px;">
+    <div style="width:100%;max-width:900px;margin-bottom:32px;">
+        <div class="card-label" style="color:#64748b;font-size:41px;text-align:center;padding-bottom:12px;border-bottom:3px solid #cbd5e1;">KEY FACT</div>
+    </div>
+    <div style="width:100%;max-width:900px;text-align:left;">
+        ${factsHtml}
+    </div>
 </div>
 ${footerHtml(cardNumber, totalCards, sourceReporter, true)}
 </body>
@@ -291,7 +516,7 @@ function createCard5WhyMatters(data, cardNumber, totalCards, catLabel, imageUrl,
         ? keywords.map(k => escapeHtml(String(k).trim())).filter(Boolean).map(k => `#${k}`).join(' ')
         : '';
     const keywordsHtml = keywordLine
-        ? `<div data-editable="why-keywords" style="font-family:'Pretendard',sans-serif;font-size:32px;font-weight:700;color:#475569;letter-spacing:0.04em;margin-bottom:28px;line-height:1.5;word-break:keep-all;">${keywordLine}</div>`
+        ? `<div data-editable="why-keywords" style="font-family:'Pretendard',sans-serif;font-size:32px;font-weight:500;color:#475569;letter-spacing:0.04em;margin-bottom:28px;line-height:1.6;word-break:keep-all;">${keywordLine}</div>`
         : '';
     const descriptionText = (data.text || '').trim();
     const descriptionHtml = descriptionText
@@ -303,13 +528,13 @@ function createCard5WhyMatters(data, cardNumber, totalCards, catLabel, imageUrl,
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>카드 ${cardNumber}</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="${PRETENDARD_CSS_URL}">
 <style>${getBaseStyles(w, h)}</style>
 </head>
 <body data-card-type="why" style="background:#f5f4f0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:80px 56px 100px;position:relative;">
 ${segyeLogoAndPageNum(true, cardNumber, totalCards, baseUrl)}
 <div style="position:relative;z-index:2;text-align:center;width:100%;max-width:900px;">
-    <div style="font-size:48px;font-weight:800;color:#334155;letter-spacing:0.16em;margin-bottom:40px;">WHY IT MATTERS</div>
+    <div class="card-label" style="font-size:48px;color:#334155;margin-bottom:40px;">WHY IT MATTERS</div>
     ${centralImgHtml}
     ${keywordsHtml}
     ${descriptionHtml}
@@ -335,31 +560,31 @@ function createCard6ProsCons(data, cardNumber, totalCards, catLabel, imageUrl, b
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>카드 ${cardNumber}</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="${PRETENDARD_CSS_URL}">
 <style>${getBaseStyles(w, h)}</style>
 </head>
 <body data-card-type="debate" style="${bgStyle} display:flex;flex-direction:column;align-items:center;justify-content:center;padding:80px 56px 100px;position:relative;">
 ${segyeLogoAndPageNum(false, cardNumber, totalCards, baseUrl)}
 <div style="position:relative;z-index:2;width:100%;max-width:900px;">
     <div style="width:50%;max-width:50%;min-width:280px;margin:0 auto 32px;">
-        <div style="font-size:40px;font-weight:800;color:rgba(255,255,255,0.95);letter-spacing:0.12em;text-align:center;">THE DEBATE</div>
+        <div class="card-label" style="font-size:40px;color:rgba(255,255,255,0.95);text-align:center;">THE DEBATE</div>
     </div>
     <div style="width:100%;max-width:100%;">
-        <div style="font-size:88px;font-weight:800;color:#fff;margin-bottom:48px;text-align:center;line-height:1.4;">${escapeHtml(question)}</div>
+        <div style="font-family:'Pretendard',sans-serif;font-size:88px;font-weight:800;color:#fff;margin-bottom:48px;text-align:center;line-height:1.4;">${escapeHtml(question)}</div>
     </div>
     <div style="display:flex;flex-direction:column;gap:24px;">
         <div style="padding:32px 40px;background:#ecfdf5;border-radius:16px;box-shadow:0 4px 12px rgba(0,0,0,0.12);border-left:6px solid #16a34a;display:flex;gap:20px;align-items:flex-start;">
             <span style="flex-shrink:0;width:40px;height:40px;display:flex;align-items:center;justify-content:center;color:#15803d;font-size:28px;font-weight:bold;">✓</span>
             <div style="flex:1;text-align:left;">
                 <div style="font-size:45px;font-weight:500;color:#15803d;margin-bottom:12px;letter-spacing:0.06em;">PRO</div>
-                <p style="font-size:58px;font-weight:500;color:#0c1222;line-height:1.5;margin:0;text-align:left;">${escapeHtml(pros)}</p>
+                <p style="font-family:'Pretendard',sans-serif;font-size:58px;font-weight:500;color:#0c1222;line-height:1.6;margin:0;text-align:left;">${escapeHtml(pros)}</p>
             </div>
         </div>
         <div style="padding:32px 40px;background:#fff1f2;border-radius:16px;box-shadow:0 4px 12px rgba(0,0,0,0.12);border-left:6px solid #dc2626;display:flex;gap:20px;align-items:flex-start;">
             <span style="flex-shrink:0;width:40px;height:40px;display:flex;align-items:center;justify-content:center;color:#b91c1c;font-size:28px;font-weight:bold;">✕</span>
             <div style="flex:1;text-align:left;">
                 <div style="font-size:45px;font-weight:500;color:#b91c1c;margin-bottom:12px;letter-spacing:0.06em;">CON</div>
-                <p style="font-size:58px;font-weight:500;color:#0c1222;line-height:1.5;margin:0;text-align:left;">${escapeHtml(cons)}</p>
+                <p style="font-family:'Pretendard',sans-serif;font-size:58px;font-weight:500;color:#0c1222;line-height:1.6;margin:0;text-align:left;">${escapeHtml(cons)}</p>
             </div>
         </div>
     </div>
@@ -384,7 +609,7 @@ function createCard7Closing(data, cardNumber, totalCards, catLabel, articleUrl, 
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>카드 ${cardNumber}</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="${PRETENDARD_CSS_URL}">
 <style>${getBaseStyles(w, h)}</style>
 </head>
 <body data-card-type="closing" style="${bgStyle} display:flex;flex-direction:column;align-items:center;padding:80px 56px 100px;position:relative;">
@@ -395,7 +620,7 @@ ${segyeLogoAndPageNum(false, cardNumber, totalCards, baseUrl)}
         <p style="font-family:'Pretendard',sans-serif;font-size:42px;font-weight:800;color:#fff;letter-spacing:0.08em;margin:0;line-height:1.3;">Last to cover</p>
     </div>
     <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;">
-        <p data-editable="closing-cta" style="font-family:'Pretendard',sans-serif;font-size:76px;font-weight:700;color:rgba(255,255,255,0.95);line-height:1.5;margin:0 0 48px 0;word-break:keep-all;">${escapeHtml((data.readerQuestion || data.text || '더 많은 기사가 세계일보에 있습니다.').trim())}</p>
+        <p data-editable="closing-cta" style="font-family:'Pretendard',sans-serif;font-size:76px;font-weight:800;color:rgba(255,255,255,0.95);line-height:1.6;margin:0 0 48px 0;word-break:keep-all;">${escapeHtml((data.readerQuestion || data.text || '더 많은 기사가 세계일보에 있습니다.').trim())}</p>
         <a href="${escapeHtml(articleLink)}" target="_blank" rel="noopener" style="display:inline-block;padding:24px 48px;background:#fff;color:#000;font-size:36px;font-weight:800;border-radius:12px;text-decoration:none;border:3px solid #fff;">원문 이동</a>
     </div>
     <div style="flex-shrink:0;text-align:center;margin-top:auto;padding-top:48px;">
@@ -455,6 +680,17 @@ function convertToSegyeFormat(sevenCard, article, options = {}) {
         keySentence: sevenCard.card4KeySentence || sevenCard.coreProblem || '기사에서 드러나는 문제를 요약합니다.',
         explanation: sevenCard.card4Explanation || sevenCard.coreProblem || '상세한 설명은 기사를 참조하세요.'
     };
+    const aiFacts = sevenCard.keyFact && Array.isArray(sevenCard.keyFact.facts) ? sevenCard.keyFact.facts : [];
+    const validAiFacts = normalizeKeyFactFacts(aiFacts);
+    const useKeyFactCard = validAiFacts.length >= 3;
+    const fallbackFacts = extractFallbackFacts(article, sevenCard);
+    const useKeyFactCardFinal = useKeyFactCard || fallbackFacts.length >= 1;
+    const card4KeyFactData = useKeyFactCard
+        ? { title: 'KEY FACT', facts: validAiFacts }
+        : (fallbackFacts.length >= 1 ? { title: 'KEY FACT', facts: fallbackFacts } : null);
+    if (card4KeyFactData) {
+        console.log('[CARD4] facts count:', card4KeyFactData.facts.length, 'items:', card4KeyFactData.facts.map(f => f.length));
+    }
     const card5Keywords = Array.isArray(article.keywords) ? article.keywords.slice(0, 5) : [];
     const card5Data = { title: '왜 중요한가', text: sevenCard.whyImportant, keywords: card5Keywords };
     const card6Data = {
@@ -470,6 +706,7 @@ function convertToSegyeFormat(sevenCard, article, options = {}) {
             text: '',
             visualConcept: `${catLabel} · 헤드라인`,
             cardNumber: 1,
+            backgroundImageUrl: img1 || null,
             html: createCard1Cover(card1Data, 1, TOTAL_CARDS, catLabel, img1, baseUrl, sourceReporter, cardWidth, cardHeight)
         },
         {
@@ -478,6 +715,7 @@ function convertToSegyeFormat(sevenCard, article, options = {}) {
             text: sevenCard.quote,
             visualConcept: '인용',
             cardNumber: 2,
+            backgroundImageUrl: img2 || null,
             html: createCard2Quote(card2Data, 2, TOTAL_CARDS, catLabel, img2, baseUrl, sourceReporter, cardWidth, cardHeight)
         },
         {
@@ -486,15 +724,18 @@ function convertToSegyeFormat(sevenCard, article, options = {}) {
             text: card3Data.text,
             visualConcept: 'CONTEXT',
             cardNumber: 3,
+            backgroundImageUrl: img3 || null,
             html: createCard3Context(card3Data, 3, TOTAL_CARDS, catLabel, img3, baseUrl, sourceReporter, cardWidth, cardHeight, firstRealImg)
         },
         {
-            type: 'content',
-            title: '문제점 요약',
-            text: (sevenCard.card4KeySentence || '') + '\n' + (sevenCard.card4Explanation || ''),
-            visualConcept: '문제점',
+            type: 'key_fact',
+            title: '핵심 팩트',
+            text: card4KeyFactData ? '' : (card4Data.keySentence || '') + '\n' + (card4Data.explanation || ''),
+            facts: card4KeyFactData ? card4KeyFactData.facts : undefined,
+            visualConcept: 'KEY FACT',
             cardNumber: 4,
-            html: createCard4Problem(card4Data, 4, TOTAL_CARDS, catLabel, card4Image, baseUrl, sourceReporter, cardWidth, cardHeight)
+            backgroundImageUrl: card4Image || null,
+            html: card4KeyFactData ? createCard4KeyFact(card4KeyFactData, 4, TOTAL_CARDS, catLabel, card4Image, baseUrl, sourceReporter, cardWidth, cardHeight) : createCard4Problem(card4Data, 4, TOTAL_CARDS, catLabel, card4Image, baseUrl, sourceReporter, cardWidth, cardHeight)
         },
         {
             type: 'content',
@@ -502,6 +743,7 @@ function convertToSegyeFormat(sevenCard, article, options = {}) {
             text: sevenCard.whyImportant,
             visualConcept: '왜 중요한가',
             cardNumber: 5,
+            backgroundImageUrl: card5Image || null,
             html: createCard5WhyMatters(card5Data, 5, TOTAL_CARDS, catLabel, card5Image, baseUrl, sourceReporter, cardWidth, cardHeight, firstRealImg)
         },
         {
@@ -510,6 +752,7 @@ function convertToSegyeFormat(sevenCard, article, options = {}) {
             text: card6Data.text,
             visualConcept: 'THE DEBATE',
             cardNumber: 6,
+            backgroundImageUrl: img6 || null,
             html: createCard6ProsCons(card6Data, 6, TOTAL_CARDS, catLabel, img6, baseUrl, sourceReporter, cardWidth, cardHeight)
         },
         {
@@ -518,6 +761,7 @@ function convertToSegyeFormat(sevenCard, article, options = {}) {
             text: sevenCard.readerQuestion,
             visualConcept: '세계일보 유입',
             cardNumber: 7,
+            backgroundImageUrl: img7 || null,
             html: createCard7Closing(card7Data, 7, TOTAL_CARDS, catLabel, article.url || article.link, sourceReporter, baseUrl, img7, cardWidth, cardHeight)
         }
     ];
@@ -540,6 +784,8 @@ function convertToSegyeFormat(sevenCard, article, options = {}) {
 
     const summary = [sevenCard.headline, sevenCard.whyImportant].filter(Boolean).join(' ').slice(0, 200);
 
+    finalCards = finalCards.map((c, i) => normalizeCardServer(c, i));
+
     return {
         templateType: requestedCount === 5 ? '시사 5장' : requestedCount === 9 ? '시사 9장' : '시사 7장',
         cardCount: finalCards.length,
@@ -554,6 +800,7 @@ module.exports = {
     createCard2Quote,
     createCard3Context,
     createCard4Problem,
+    createCard4KeyFact,
     createCard5WhyMatters,
     createCard6ProsCons,
     createCard7Closing

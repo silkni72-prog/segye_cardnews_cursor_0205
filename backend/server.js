@@ -4,15 +4,21 @@
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 const cors = require('cors');
 const { scrapeArticle } = require('./scraper');
 const { generateSevenCardCopy, generateArticleKeywords } = require('./lib/card-generator');
 const { convertToSegyeFormat } = require('./lib/seven-card-to-segye');
-const { generateImagesFromArticle, PLACEHOLDER_IMAGE_DATA_URL } = require('./lib/imageGenerator');
+const { generateImagesFromArticle, generateOneImage, PLACEHOLDER_IMAGE_DATA_URL } = require('./lib/imageGenerator');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const ROOT_DIR = path.join(__dirname, '..');
+const GENERATED_CARDS_DIR = path.join(ROOT_DIR, 'generated', 'cards');
+if (!fs.existsSync(GENERATED_CARDS_DIR)) {
+    fs.mkdirSync(GENERATED_CARDS_DIR, { recursive: true });
+    console.log('[Serve] created directory:', GENERATED_CARDS_DIR);
+}
 
 // AI API 키 확인 (Gemini 또는 OpenAI, one-click 로직 사용)
 const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
@@ -290,7 +296,10 @@ app.post('/api/cardnews/generate', async (req, res) => {
                 cards: cardnews.cards.map((c) => ({ ...c, html: applyFontWeightToCardHtml(c.html, Number(options.weightLevel)) }))
             };
         }
-        
+        const card4 = cardnews.cards.find(c => c && (c.cardNumber === 4));
+        if (card4) {
+            console.log('[CARD4 API] type:', card4.type, 'facts:', card4.facts, 'facts lengths:', card4.facts && card4.facts.map(f => (f && f.length) || 0));
+        }
         console.log('✅ 전체 카드 생성 완료:', cardnews.cardCount + '장');
         
         // 태그용 핵심 키워드 4~5개 생성 (마지막 #세계일보는 프론트에서 고정 추가)
@@ -512,6 +521,61 @@ app.post('/api/images/extract', async (req, res) => {
             error: error.message
         });
     }
+});
+
+// ========================================
+// 5-1. 디버그: 단일 카드 배경 이미지 (1장) — 서빙/적용/PNG 검증용
+// ========================================
+app.all('/api/debug/card-image', async (req, res) => {
+    console.log('[API HIT] /api/debug/card-image');
+    const text = req.method === 'POST' ? (req.body && req.body.text) : req.query.text;
+    const keywords = req.method === 'POST' ? (req.body && req.body.keywords) : (req.query.keywords ? (Array.isArray(req.query.keywords) ? req.query.keywords : [req.query.keywords]) : undefined);
+    const promptText = [String(text || '').trim(), Array.isArray(keywords) ? keywords.join(' ') : ''].filter(Boolean).join('. ') || 'Professional news card background, editorial, high quality.';
+    const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host') || 'localhost:' + PORT}`;
+
+    let backgroundImageUrl = '';
+    let filePath = null;
+    const openaiKey = process.env.OPENAI_API_KEY && String(process.env.OPENAI_API_KEY).trim();
+    const canGenerate = openaiKey && !/^(sk-)?your[-_]?openai|sk-your|sk-proj-your/i.test(openaiKey) && (openaiKey.startsWith('sk-') || openaiKey.startsWith('sk-proj-'));
+
+    if (canGenerate) {
+        try {
+            const genUrl = await generateOneImage(openaiKey, promptText.slice(0, 4000));
+            if (genUrl) {
+                const sizeLog = '(remote URL, size unknown)';
+                console.log('[API HIT] /api/debug/card-image — 생성 결과:', sizeLog);
+                try {
+                    const response = await fetch(genUrl, {
+                        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SegyeCardNews/1.0)', 'Accept': 'image/*' }
+                    });
+                    if (response.ok) {
+                        const buf = Buffer.from(await response.arrayBuffer());
+                        const filename = `card-debug-${Date.now()}.png`;
+                        const fullPath = path.join(GENERATED_CARDS_DIR, filename);
+                        fs.writeFileSync(fullPath, buf);
+                        filePath = fullPath;
+                        backgroundImageUrl = `${baseUrl}/generated/cards/${filename}`;
+                        console.log('[API HIT] /api/debug/card-image — 저장 경로:', fullPath, ', 파일 사이즈:', buf.length, 'bytes');
+                    } else {
+                        backgroundImageUrl = `${baseUrl}/api/image-proxy?url=${encodeURIComponent(genUrl)}`;
+                        console.log('[API HIT] /api/debug/card-image — 저장 실패, 프록시 URL 사용');
+                    }
+                } catch (saveErr) {
+                    backgroundImageUrl = `${baseUrl}/api/image-proxy?url=${encodeURIComponent(genUrl)}`;
+                    console.warn('[API HIT] /api/debug/card-image — 저장 오류:', saveErr.message, '→ 프록시 URL 반환');
+                }
+            }
+        } catch (err) {
+            console.warn('[API HIT] /api/debug/card-image — 이미지 생성 실패:', err.message);
+        }
+    }
+
+    if (!backgroundImageUrl) {
+        backgroundImageUrl = `${baseUrl}/assets/segye-on-logo.png`;
+        console.log('[API HIT] /api/debug/card-image — 더미 이미지 사용 (생성 비활성 또는 실패)');
+    }
+    console.log('[API HIT] /api/debug/card-image — 최종 반환 URL:', backgroundImageUrl);
+    res.json({ ok: true, backgroundImageUrl, filePath: filePath || undefined });
 });
 
 // ========================================

@@ -23,7 +23,8 @@ const CARD_RULES = {
         pros: { max: 20, desc: '장점·긍정적 내용 요약 15~20자' },
         cons: { max: 28, desc: 'PRO와 대조되는 내용 요약 15~28자' }
     },
-    readerQuestion: { desc: '독자 연결 질문, 당신은? 형태' }
+    readerQuestion: { desc: '독자 연결 질문, 당신은? 형태' },
+    keyFact: { facts: { min: 3, max: 5 }, valueMaxWords: 7, desc: 'KEY FACT 카드: 3~5개, 각 "Label: Value", Value 7단어 이내, 사실만' }
 };
 
 const GEMINI_PROMPT = `다음 기사를 분석하여 7장 카드뉴스 콘텐츠를 생성해주세요.
@@ -45,6 +46,10 @@ const GEMINI_PROMPT = `다음 기사를 분석하여 7장 카드뉴스 콘텐츠
   "card4Explanation": "카드4용 해설 문장 한 줄, 문제점을 쉽게 설명 (50-90자)",
   "beforeAfter": "BEFORE: 12명 | AFTER: 150명 | 6개월간 12배 증가",
   "whyImportant": "기사 핵심을 함축적으로 요약한 2문장. 각 25-35자, 간결·핵심만.",
+  "keyFact": {
+    "title": "KEY FACT",
+    "facts": ["위치: 바르셀로나", "건축가: 안토니 가우디", "완공: 1914년", "지정: UNESCO 세계유산"]
+  },
   "prosCons": {
     "question": "이 주제의 장단점은? (15~20자)",
     "pros": "장점·긍정적 내용을 요약한 한 문장 15~20자 (이점, 효과, 기대 등)",
@@ -65,7 +70,7 @@ const GEMINI_PROMPT = `다음 기사를 분석하여 7장 카드뉴스 콘텐츠
 9. whyImportant: 핵심을 함축적으로 요약한 2문장, 각 25-35자, 간결·핵심만, 추상어 금지
 10. prosCons: question 15~20자. pros=장점·긍정 요약 15~20자. cons=PRO와 대조되는 내용 요약 15~28자
 11. readerQuestion: 독자 삶과 연결되는 질문
-12. contextKeyLine 2문장·coreProblem·card4KeySentence·card4Explanation 반드시 포함. 글자 수 초과 금지. JSON만 응답.`;
+12. keyFact: 기사에서 사실만 추출하여 3~5개. 형식 "Label: Value", Value는 짧게(7단어/60자 이내). 우선순위 (1) 숫자: 금액·날짜·수치·비율 (2) 고유명사: 기업·인물·장소 (3) 사건 결과: 결정·발표·판정 등 (4) 핵심 변화: 전환·핵심 사업·시장점유율 등. 예시-건축: 위치: 바르셀로나, 건축가: 안토니 가우디, 완공: 1914년, 지정: UNESCO 세계유산. 예시-경제: 매출: 350억 달러, 증가율: 전년 대비 94%, 핵심 사업: AI 데이터센터, 시장점유율: 80% 이상. 문장·의견 금지. JSON만 응답.`;
 
 const OPENAI_PROMPT = `다음 기사를 분석하여 7장 카드뉴스 콘텐츠를 생성해주세요.
 
@@ -86,11 +91,12 @@ const OPENAI_PROMPT = `다음 기사를 분석하여 7장 카드뉴스 콘텐츠
   "card4Explanation": "카드4 해설 문장 50-90자",
   "beforeAfter": "BEFORE: 숫자 | AFTER: 숫자 | 설명",
   "whyImportant": "핵심 함축 요약 2문장 각 25-35자",
+  "keyFact": { "title": "KEY FACT", "facts": ["위치: 바르셀로나", "건축가: 안토니 가우디", "완공: 1914년", "지정: UNESCO 세계유산"] },
   "prosCons": { "question": "15~20자", "pros": "장점·긍정 요약 15~20자", "cons": "PRO와 대조되는 내용 요약 15~28자" },
   "readerQuestion": "당신은? 형태"
 }
 
-규칙: headline 2줄 각 8~10자(첫 줄=주체·사건, 둘째 줄=결과·쟁점·수치, 핵심 요약 강화), quote 30자, contextKeyLine 2문장, coreProblem 40-60자, card4 2문장, beforeAfter 숫자형식, whyImportant 2문장 각 25-35자, prosCons question 15~20자·pros 장점 요약 15~20자·cons PRO와 대조되는 내용 요약 15~28자. JSON만.`;
+규칙: headline 2줄 각 8~10자(첫 줄=주체·사건, 둘째 줄=결과·쟁점·수치, 핵심 요약 강화), quote 30자, contextKeyLine 2문장, coreProblem 40-60자, card4 2문장, keyFact 3~5개 "Label: Value"(우선순위: (1)숫자·금액·날짜·비율 (2)고유명사·기업·인물·장소 (3)사건 결과 (4)핵심 변화. 예: 위치: 바르셀로나, 매출: 350억 달러), beforeAfter 숫자형식, whyImportant 2문장 각 25-35자, prosCons question 15~20자·pros·cons 요약. JSON만.`;
 
 /** 옵션에 따른 프롬프트 보조 지시문 (톤, 길이, 말투, 키워드 강조) */
 function buildOptionsPromptSuffix(options) {
@@ -124,6 +130,44 @@ function truncateProsCons(str, maxLen) {
     return t.length <= maxLen ? t : t.slice(0, maxLen).trim();
 }
 
+/** keyFact.facts 정규화: 배열 또는 줄단위 문자열 허용, 전각 콜론/자동보정, 3개 미만이면 card4 필드로 채움, 최대 5개. 가능하면 항상 keyFact 객체 반환 */
+function normalizeKeyFact(parsed) {
+    const kf = parsed?.keyFact;
+    if (!kf) return null;
+
+    const min = CARD_RULES.keyFact.facts.min;
+    const max = CARD_RULES.keyFact.facts.max;
+
+    // A. Accept facts as array or newline-separated string
+    let rawList = [];
+    const rawFacts = kf.facts;
+    if (Array.isArray(rawFacts)) {
+        rawList = rawFacts.map((s) => String(s).trim()).filter(Boolean);
+    } else if (typeof rawFacts === 'string') {
+        rawList = rawFacts.split(/\n/).map((s) => s.trim()).filter(Boolean);
+    }
+
+    // B. Normalize fullwidth colon to ASCII, then C. Ensure "Label: Value" (auto-fix only when exactly 2 tokens)
+    const cleaned = [];
+    for (let i = 0; i < rawList.length; i++) {
+        let s = rawList[i].replace(/\uFF1A/g, ':').replace(/\s+/g, ' ').trim();
+        if (!s) continue;
+        if (s.includes(':')) {
+            cleaned.push(s);
+        } else {
+            const tokens = s.split(/\s+/).filter(Boolean);
+            if (tokens.length === 2) cleaned.push(tokens[0] + ': ' + tokens[1]);
+        }
+    }
+
+    // D. 문장 형태로 패딩하지 않음. 3개 미만이면 null 반환해 서버 폴백(extractFallbackFacts) 사용
+    if (cleaned.length < min) return null;
+
+    // E. Clamp to max 5
+    const facts = cleaned.slice(0, max);
+    return facts.length ? { title: 'KEY FACT', facts } : null;
+}
+
 function createFallback(article) {
     const content = article.content || article.description || '';
     const title = article.title || '';
@@ -145,7 +189,8 @@ function createFallback(article) {
             pros: truncateProsCons('긍정적 관점', CARD_RULES.prosCons.pros.max),
             cons: truncateProsCons('대조되는 관점', CARD_RULES.prosCons.cons.max)
         },
-        readerQuestion: '당신의 생각은 어떠신가요?'
+        readerQuestion: '당신의 생각은 어떠신가요?',
+        keyFact: null
     };
 }
 
@@ -173,6 +218,10 @@ function normalizeResult(parsed, article) {
     const prosQuestionMax = CARD_RULES.prosCons.question.max;
     const prosConsProsMax = CARD_RULES.prosCons.pros.max;
     const prosConsConsMax = CARD_RULES.prosCons.cons.max;
+    const keyFact = normalizeKeyFact(parsed);
+    if (process.env.DEBUG_KEYFACT) {
+        console.log('[DEBUG] normalized.keyFact', keyFact);
+    }
     return {
         headline: postProcessHeadline(rawHeadline, title),
         quote: postProcessQuote(rawQuote, '핵심 내용을 확인하세요'),
@@ -184,6 +233,7 @@ function normalizeResult(parsed, article) {
         card4Explanation: parsed.card4Explanation && String(parsed.card4Explanation).trim() ? truncateText(parsed.card4Explanation.trim(), CARD_RULES.card4Explanation.max) : (parsed.coreProblem && String(parsed.coreProblem).trim() ? truncateText(parsed.coreProblem.trim(), CARD_RULES.card4Explanation.max) : '상세한 설명은 기사를 참조하세요.'),
         beforeAfter: parsed.beforeAfter && String(parsed.beforeAfter).trim() ? String(parsed.beforeAfter).trim() : 'BEFORE: 이전 | AFTER: 이후 | 변화 정보를 확인하세요',
         whyImportant: parsed.whyImportant && String(parsed.whyImportant).trim() ? truncateText(parsed.whyImportant.trim(), 120) : '상세 내용은 기사를 참조하세요',
+        keyFact: keyFact || null,
         prosCons: {
             question: truncateProsCons(parsed.prosCons?.question || '이 주제의 장단점은?', prosQuestionMax),
             pros: truncateProsCons(parsed.prosCons?.pros || '긍정적 관점', prosConsProsMax),
@@ -243,6 +293,9 @@ async function generateWithGemini(article, geminiKey, options) {
             const data = await response.json();
             const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
             const parsed = parseJsonFromText(text);
+            if (process.env.DEBUG_KEYFACT) {
+                console.log('[DEBUG] parsed.keyFact', parsed?.keyFact);
+            }
             const result = normalizeResult(parsed, article);
             if (result) return result;
         } catch (e) {
@@ -280,6 +333,9 @@ async function generateWithOpenAI(article, openaiKey, options) {
         const data = await response.json();
         const text = data.choices?.[0]?.message?.content || '';
         const parsed = parseJsonFromText(text) || (text ? JSON.parse(text) : null);
+        if (process.env.DEBUG_KEYFACT) {
+            console.log('[DEBUG] parsed.keyFact', parsed?.keyFact);
+        }
         const result = normalizeResult(parsed, article);
         return result || null;
     } catch (e) {
