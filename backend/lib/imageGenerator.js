@@ -159,6 +159,7 @@ function fillEmptySlotsWithPlaceholder(arr) {
 
 module.exports = {
     generateImagesFromArticle,
+    generateOneImage,
     buildCardPrompts,
     PLACEHOLDER_IMAGE_DATA_URL
 };

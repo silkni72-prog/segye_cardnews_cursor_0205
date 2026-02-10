@@ -20,6 +20,24 @@ const CardImageCapture = {
     },
 
     /**
+     * doc 내 모든 img 로드 완료 대기 (캡처 전 배경 이미지 포함 보장)
+     */
+    async waitForImagesInDoc(bodyEl) {
+        const imgs = bodyEl ? bodyEl.querySelectorAll('img') : [];
+        const waitOne = (img) => {
+            if (!img.src) return Promise.resolve();
+            if (img.complete) return img.decode ? img.decode().catch(() => {}) : Promise.resolve();
+            return new Promise((resolve) => {
+                const done = () => { img.onload = null; img.onerror = null; resolve(); };
+                img.onload = done;
+                img.onerror = done;
+                setTimeout(done, 8000);
+            });
+        };
+        await Promise.all(Array.prototype.map.call(imgs, waitOne));
+    },
+
+    /**
      * 카드 HTML을 iframe에서 렌더링 후 캡처
      */
     async captureCardFromHTML(cardHtml, width = 1080, height = 1350) {
@@ -38,6 +56,8 @@ const CardImageCapture = {
                     doc.write(cardHtml);
                     doc.close();
 
+                    // 이미지 로드 완료 대기 후 캡처 (배경 이미지가 PNG에 포함되도록)
+                    await this.waitForImagesInDoc(doc.body);
                     // 폰트 및 스타일 로드 대기
                     await new Promise((r) => setTimeout(r, 500));
 

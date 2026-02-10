@@ -16,6 +16,7 @@ Thumbs.db
 dist/
 build/
 *.tsbuildinfo
+generated/
 
 # IDE
 .idea/
